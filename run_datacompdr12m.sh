@@ -3,9 +3,11 @@ num_nodes=1
 global_batch_size=$((2**11))
 num_seen_samples=$((30*1000*global_batch_size))
 exp_name="mobileclipb_datacompdr12m_s30m_single_gpu_$(date +%Y-%m-%d_%H-%M-%S)"
-num_checkpoints=20  # An epoch is ns/num_checkpoints long
-data="DataCompDR-12M/merged_shards/{00000000..00000001}.tar"    
-# data="https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/{00000000..00000000}.tar"
+num_checkpoints=20  
+
+
+data="DataCompDR-12M/merged_shards/{00000000..00000000}.tar"    
+#data="https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/{00000000..00000000}.tar"
 #     --report-to wandb \
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
@@ -32,7 +34,7 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --dataset-resampled \
     --save-most-recent \
     --grad-clip-norm 1.0 \
-    --imagenet-val "imagenet_validation" \
+    --imagenet-val "imagenet_validation/val" \
     --zeroshot-frequency 1 \
     --wandb-project-name mobileclip \
     --dataset-reinforcement \

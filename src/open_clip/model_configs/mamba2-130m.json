@@ -1,0 +1,24 @@
+{
+    "embed_dim": 512,
+    "vision_cfg": {
+        "image_size": 224,
+        "layers": 12,
+        "width": 768,
+        "patch_size": 16
+    },
+    "text_cfg": {
+        "context_length": 77,
+        "vocab_size": 50277,
+        "d_model": 2560,
+        "d_intermediate": 0,  
+        "n_layer": 64,        
+        "ssm_cfg": {},
+        "attn_layer_idx": [],
+        "attn_cfg": {},
+        "rms_norm": true,
+        "residual_in_fp32": true,
+        "fused_add_norm": true,
+        "pad_vocab_size_multiple": 8,
+        "tie_embeddings": true
+    }
+}
