@@ -45,7 +45,7 @@ class Mamba2TextEncoder(nn.Module):
             Mamba(
                 d_model=d_model,
                 d_state=d_state,
-                d_conv=4,
+                d_conv=8,
                 expand=expand,
                 dt_rank=dt_rank,
                 dt_min=dt_min,

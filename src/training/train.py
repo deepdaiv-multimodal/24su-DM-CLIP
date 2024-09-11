@@ -62,7 +62,6 @@ def backward(total_loss, scaler):
 
 
 def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
-
     device = torch.device(args.device)
     autocast = get_autocast(args.precision)
     input_dtype = get_input_dtype(args.precision)
@@ -109,29 +108,38 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         if args.accum_freq == 1:
             with autocast():
                 model_out = model(images, texts)
-                logit_scale = model_out["logit_scale"]
 
-                if args.distill:
-                    with torch.no_grad():
-                        dist_model_out = dist_model(images, texts)
-                    model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
+                if isinstance(model_out, tuple):
+                    model_out = model_out[0]  # tuple의 첫 번째 요소가 dict일 것이라고 가정
 
-                if args.dataset_reinforcement:
-                    batch_size = images.shape[0]
-                    model_out.update({
-                        'dist_image_features': teacher_images,
-                        'dist_text_features': teacher_texts,
-                    })
-                    if not args.dataset_reinforcement_mix_synthetic:
+                if isinstance(model_out, dict):
+                    logit_scale = model_out.get("logit_scale", None)
+
+                    if args.distill:
+                        with torch.no_grad():
+                            dist_model_out = dist_model(images, texts)
+                        model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
+
+                    if args.dataset_reinforcement:
+                        batch_size = images.shape[0]
                         model_out.update({
-                            "text_features": model_out["text_features"][:batch_size],
-                            "syn_text_features": model_out["text_features"][batch_size:],
-                            'dist_syn_text_features': teacher_syn_texts
+                            'dist_image_features': teacher_images,
+                            'dist_text_features': teacher_texts,
                         })
+                        if not args.dataset_reinforcement_mix_synthetic:
+                            model_out.update({
+                                "text_features": model_out["text_features"][:batch_size],
+                                "syn_text_features": model_out["text_features"][batch_size:],
+                                'dist_syn_text_features': teacher_syn_texts
+                            })
 
-                losses = loss(**model_out, output_dict=True)
-                total_loss = sum(losses.values())
-                losses["loss"] = total_loss
+                    losses = loss(**model_out, output_dict=True)
+                    total_loss = sum(losses.values())
+                    losses["loss"] = total_loss
+
+                else:
+                    # Tensor일 경우 처리 방법을 정의합니다
+                    raise ValueError(f"Unexpected model output type: {type(model_out)}")
 
             backward(total_loss, scaler)
 
@@ -141,14 +149,23 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 with autocast():
                     model_out = model(images, texts)
 
-                    for f in ("logit_scale", "logit_bias"):
-                        model_out.pop(f, None)
+                    if isinstance(model_out, tuple):
+                        model_out = model_out[0]  # tuple의 첫 번째 요소가 dict일 것이라고 가정
 
-                    for key, val in model_out.items():
-                        if key in accum_features:
-                            accum_features[key].append(val)
-                        else:
-                            accum_features[key] = [val]
+                    if isinstance(model_out, dict):
+                        for f in ("logit_scale", "logit_bias"):
+                            model_out.pop(f, None)
+
+                        for key, val in model_out.items():
+                            if key in accum_features:
+                                accum_features[key].append(val)
+                            else:
+                                accum_features[key] = [val]
+                    elif isinstance(model_out, torch.Tensor):
+                        # Tensor일 경우의 처리 방법을 정의합니다
+                        accum_features["output"] = model_out
+                    else:
+                        raise ValueError(f"Unexpected model output type: {type(model_out)}")
 
                 accum_images.append(images)
                 accum_texts.append(texts)
@@ -161,6 +178,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 print("accum_freq: ", args.accum_freq)
                 continue
 
+            
+            
             logit_scale_scalar_accum = 0.0  # logit_scale 누적 변수 추가
 
             for j in range(args.accum_freq):

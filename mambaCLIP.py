@@ -10,9 +10,9 @@ model.eval()
 vocab_size = model.token_embedding.weight.shape[0]
 max_seq_len = model.context_length
 
-# 파라미터 370M 
-d_model = 1024  
-n_layer = 48   
+# 파라미터  59.98M
+d_model = 480
+n_layer = 24   
 output_dim = model.text_projection.shape[1]
 
 # Mamba2 텍스트 인코더 생성

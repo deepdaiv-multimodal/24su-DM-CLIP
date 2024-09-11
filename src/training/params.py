@@ -48,6 +48,18 @@ def parse_args(args):
         help="Path to file(s) with validation data",
     )
     parser.add_argument(
+        "--mamba-d-model", 
+        type=int,
+        default=480,
+        help='Mamba model dimension'
+    )
+    parser.add_argument(
+        "--mamba-n-layer", 
+        type=int, 
+        default=24, 
+        help='Number of Mamba layers'
+    )
+    parser.add_argument(
         "--train-num-samples",
         type=int,
         default=None,
