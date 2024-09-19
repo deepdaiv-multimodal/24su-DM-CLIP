@@ -42,6 +42,13 @@ def parse_args(args):
         )
     )
     parser.add_argument(
+        '--steps_per_epoch',
+        type=int,
+        default=1000,
+        help='한 에포크당 스텝 수 (WebDataset용)'
+    )
+    
+    parser.add_argument(
         "--val-data",
         type=str,
         default=None,

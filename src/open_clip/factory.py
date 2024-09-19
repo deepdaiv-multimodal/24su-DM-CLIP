@@ -421,6 +421,8 @@ def create_model_and_transforms(
     if model_name == "MambaCLIP":
         base_model, _, preprocess_val = open_clip.create_model_and_transforms('ViT-B-32',device=device)
         base_model.eval()
+        
+        
 
         # Mamba2 텍스트 인코더 파라미터 설정
         vocab_size = base_model.token_embedding.weight.shape[0]

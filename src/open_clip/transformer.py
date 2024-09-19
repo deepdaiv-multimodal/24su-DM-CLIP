@@ -597,8 +597,14 @@ class VisionTransformer(nn.Module):
             pooled = tokens = x
 
         return pooled, tokens
-
+    # ! 수정
     def forward(self, x: torch.Tensor):
+        
+        if x.dim() == 2:
+        # 이미 임베딩된 이미지인 경우
+            return x
+    
+    
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]

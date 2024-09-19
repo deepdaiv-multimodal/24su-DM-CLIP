@@ -29,7 +29,7 @@ except ImportError:
     hvd = None
 
 from open_clip import create_model_and_transforms, trace_model, get_tokenizer, create_loss
-from src.training.data import get_data
+from src.training.data import get_datacomp_12m_dataset, get_data
 from src.training.distributed import is_master, init_distributed_device, broadcast_object
 from src.training.logger import setup_logging
 from src.training.params import parse_args
@@ -359,7 +359,6 @@ def main(args):
     data = get_data(
         args,
         (preprocess_train, preprocess_val),
-        epoch=start_epoch,
         tokenizer=tokenizer,
     )
     assert len(data), 'At least one train or eval dataset must be specified.'
@@ -367,8 +366,13 @@ def main(args):
 
     # create scheduler if train
     scheduler = None
+
     if 'train' in data and optimizer is not None:
-        total_steps = (data["train"].dataloader.num_batches // args.accum_freq) * args.epochs
+        
+        steps_per_epoch = getattr(args, 'steps_per_epoch', 1000)  # args에 없으면 기본값 1000 사용
+        total_steps = (steps_per_epoch // args.accum_freq) * args.epochs
+        
+        
         if args.lr_scheduler == "cosine":
             scheduler = cosine_lr(optimizer, args.lr, args.warmup, total_steps)
         elif args.lr_scheduler == "const":
@@ -376,7 +380,7 @@ def main(args):
         elif args.lr_scheduler == "const-cooldown":
             assert args.epochs_cooldown is not None,\
                 "Please specify the number of cooldown epochs for this lr schedule."
-            cooldown_steps = (data["train"].dataloader.num_batches // args.accum_freq) * args.epochs_cooldown
+            cooldown_steps = (data["train_size"] // args.batch_size // args.accum_freq) * args.epochs_cooldown
             scheduler = const_lr_cooldown(
                 optimizer, args.lr, args.warmup, total_steps,
                 cooldown_steps, args.lr_cooldown_power, args.lr_cooldown_end)
@@ -384,7 +388,9 @@ def main(args):
             logging.error(
                 f'Unknown scheduler, {args.lr_scheduler}. Available options are: cosine, const, const-cooldown.')
             exit(1)
-
+            
+            
+            
     # determine if this worker should save logs and checkpoints. only do so if it is rank == 0
     args.save_logs = args.logs and args.logs.lower() != 'none' and is_master(args)
     writer = None
@@ -436,6 +442,10 @@ def main(args):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
 
+        # !매 에포크마다 데이터 로더 재생성
+        if 'train' in data:
+            data['train'], _ = get_datacomp_12m_dataset(args, preprocess_train, is_train=True, tokenizer=tokenizer)
+        
         train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
         completed_epoch = epoch + 1
 

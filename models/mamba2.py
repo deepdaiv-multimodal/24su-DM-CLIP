@@ -7,6 +7,7 @@ try:
 except ImportError:
     RMSNormGated, LayerNorm = None, None
 
+# !mamba2로 바꿔야함
 from mamba_ssm.modules.mamba_simple import Mamba
 from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
 

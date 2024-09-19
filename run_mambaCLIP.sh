@@ -5,10 +5,8 @@ num_seen_samples=$((30*1000*global_batch_size))
 exp_name="mambaCLIP_datacompdr12m_s30m_single_gpu_$(date +%Y-%m-%d_%H-%M-%S)"
 num_checkpoints=20  
 
-
-data="DataCompDR-12M/merged_shards/{00000000..00000000}.tar"    
-#data="https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/{00000000..00000000}.tar"
-#     --report-to wandb \
+# HuggingFace 데이터셋 URL로 변경
+data="pipe:curl -L -s -H 'Authorization: Bearer ${HUGGINGFACE_TOKEN}' https://huggingface.co/datasets/apple/DataCompDR-12M/resolve/main/{00000000..00000000}.tar"
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \
