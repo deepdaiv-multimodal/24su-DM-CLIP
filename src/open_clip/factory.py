@@ -429,23 +429,7 @@ def create_model_and_transforms(
         # max_seq_len = base_model.context_length
         output_dim = base_model.text_projection.shape[1]
 
-        # # Mamba2 텍스트 인코더 생성
-        # mamba_encoder = CLIPMamba2TextEncoder(
-        #     vocab_size=vocab_size,
-        #     max_seq_len=max_seq_len,
-        #     output_dim=output_dim,
-        #     d_model=mamba_d_model,
-        #     n_layer=mamba_n_layer
-        # )
 
-        # # CLIP 모델의 텍스트 인코더를 Mamba2 텍스트 인코더로 교체
-        # base_model.text = mamba_encoder
-
-        # model = base_model.to(device)
-
-        # #! precision 설정
-        # if precision == 'fp16':
-        #     model = model.half()
 
         config = MambaConfig(
             d_model=mamba_d_model,
@@ -464,6 +448,8 @@ def create_model_and_transforms(
         mamba_encoder = MambaLMHeadModel(config, device=device, dtype=dtype)
         base_model.text = mamba_encoder
 
+        model = base_model
+        
         preprocess_train = preprocess_val
     else:
 
