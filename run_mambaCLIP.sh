@@ -41,5 +41,5 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --distill-loss-weights 0.0 1.0 \
     --distill-teacher-dimension 768 768 \
     --distill-average-after-softmax \
-    --mamba-d-model 480 \
-    --mamba-n-layer 24 \
+    --mamba-d-model 512 \
+    --mamba-n-layer 12 \

@@ -6,6 +6,8 @@ from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
+from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
+from mamba_ssm.models.config_mamba import MambaConfig
 
 import torch
 
@@ -410,8 +412,8 @@ def create_model_and_transforms(
         pretrained_hf: bool = True,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
-        mamba_d_model: int = 400,
-        mamba_n_layer: int = 24,
+        mamba_d_model: int = 512,
+        mamba_n_layer: int = 12,
         **model_kwargs,
 ):
     force_preprocess_cfg = merge_preprocess_kwargs(
@@ -421,31 +423,46 @@ def create_model_and_transforms(
     if model_name == "MambaCLIP":
         base_model, _, preprocess_val = open_clip.create_model_and_transforms('ViT-B-32',device=device)
         base_model.eval()
-        
-        
 
         # Mamba2 텍스트 인코더 파라미터 설정
         vocab_size = base_model.token_embedding.weight.shape[0]
-        max_seq_len = base_model.context_length
+        # max_seq_len = base_model.context_length
         output_dim = base_model.text_projection.shape[1]
 
-        # Mamba2 텍스트 인코더 생성
-        mamba_encoder = CLIPMamba2TextEncoder(
-            vocab_size=vocab_size,
-            max_seq_len=max_seq_len,
-            output_dim=output_dim,
+        # # Mamba2 텍스트 인코더 생성
+        # mamba_encoder = CLIPMamba2TextEncoder(
+        #     vocab_size=vocab_size,
+        #     max_seq_len=max_seq_len,
+        #     output_dim=output_dim,
+        #     d_model=mamba_d_model,
+        #     n_layer=mamba_n_layer
+        # )
+
+        # # CLIP 모델의 텍스트 인코더를 Mamba2 텍스트 인코더로 교체
+        # base_model.text = mamba_encoder
+
+        # model = base_model.to(device)
+
+        # #! precision 설정
+        # if precision == 'fp16':
+        #     model = model.half()
+
+        config = MambaConfig(
             d_model=mamba_d_model,
-            n_layer=mamba_n_layer
+            n_layer=mamba_n_layer,
+            vocab_size=vocab_size,
+            ssm_cfg=dict(layer="Mamba2"),
+            rms_norm=True,
+            residual_in_fp32=True,
+            fused_add_norm=True,
+            pad_vocab_size_multiple=16,
         )
 
-        # CLIP 모델의 텍스트 인코더를 Mamba2 텍스트 인코더로 교체
+        device = "cuda"
+        dtype = torch.float16
+
+        mamba_encoder = MambaLMHeadModel(config, device=device, dtype=dtype)
         base_model.text = mamba_encoder
-
-        model = base_model.to(device)
-
-        #! precision 설정
-        if precision == 'fp16':
-            model = model.half()
 
         preprocess_train = preprocess_val
     else:
