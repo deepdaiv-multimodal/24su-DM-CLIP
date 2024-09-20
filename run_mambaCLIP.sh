@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --train-data "$data" \
     --train-num-samples 7 \
     --warmup 1000 \
-    --dataset-type webdataset \
+    --dataset-type datacomp \
     --precision amp \
     --workers 1 \
     --model MambaCLIP  \

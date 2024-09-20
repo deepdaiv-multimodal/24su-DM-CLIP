@@ -3,21 +3,22 @@ import logging
 import math
 import os
 import time
-from transformers import CLIPTokenizer
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.parallel.distributed import DistributedDataParallel
-import torch.nn as nn
+
 try:
     import wandb
 except ImportError:
     wandb = None
 
-from open_clip import get_input_dtype, CLIP, CustomTextCLIP,get_tokenizer
+from open_clip import get_input_dtype, CLIP, CustomTextCLIP
 from .distributed import is_master
 from .zero_shot import zero_shot_eval
 from .precision import get_autocast
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -69,23 +70,14 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     if args.distill:
         dist_model.eval()
 
-    # data['train'].set_epoch(epoch)
+    data['train'].set_epoch(epoch)
 
-    dataloader = data['train']
-    
-    
-    # 총 배치 수 추정을 위한 steps_per_epoch 사용
-    if hasattr(args, 'steps_per_epoch'):
-        num_batches_per_epoch = args.steps_per_epoch
-    else:
-        num_batches_per_epoch = len(dataloader) // args.accum_freq
-
-    # 샘플 수 대신 배치 수로 계산
-    sample_digits = math.ceil(math.log(num_batches_per_epoch + 1, 10))
+    dataloader = data['train'].dataloader
+    num_batches_per_epoch = dataloader.num_batches // args.accum_freq
+    sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
 
     # Gradient Accumulation 용 리스트 및 딕셔너리 초기화
     accum_images, accum_texts, accum_teacher_images, accum_teacher_texts, accum_syn_texts, accum_features = [], [], [], [], [], {}
-
 
     losses_m = {}
     batch_time_m = AverageMeter()
@@ -93,78 +85,34 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     end = time.time()
 
     for i, batch in enumerate(dataloader):
-        images, json_data, npz_data = batch
-        
         i_accum = i // args.accum_freq
         step = num_batches_per_epoch * epoch + i_accum
 
         if not args.skip_scheduler:
             scheduler(step)
 
-        # !npz 데이터 처리 > 수정해야함 
-        images = images.to(device=device, non_blocking=True)
-        texts = npz_data['text_emb'].to(device=device, non_blocking=True)
-        teacher_images = npz_data['image_emb'].to(device=device, non_blocking=True)
-        teacher_texts = npz_data['text_emb'].to(device=device, non_blocking=True)
+        images, texts, teacher_images, teacher_texts = batch[:4]
 
-       
-        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        # ! 확인 
+        images, texts = batch[:2]
+        #images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+        texts = texts.to(device=device, non_blocking=True)
+        # ! 확인
+        # teacher_images = teacher_images.to(device=device, non_blocking=True)
+        # teacher_texts = teacher_texts.to(device=device, non_blocking=True)
 
-        
-        # ! Synthetic texts 처리
         if args.dataset_reinforcement and not args.dataset_reinforcement_mix_synthetic:
-            # batch['syn.json']에서 'syn_text' 키를 통해 텍스트 리스트를 가져옴
-            syn_texts = json_data.get('syn_text', [])
-            
-            # syn_texts의 타입이 리스트인지 확인
-            if isinstance(syn_texts, list):
-                # 리스트가 아닐 경우, 예를 들어 텍스트가 리스트 안에 있는 경우 처리
-                if isinstance(syn_texts[0], list):
-                    syn_texts = [item for sublist in syn_texts for item in sublist]
-                
-                # 최대 길이 설정 (모델의 max_length에 맞추기)
-                max_length = tokenizer.model_max_length
-                
-                # 텍스트를 토크나이즈하여 텐서로 변환
-                syn_texts_tokenized = tokenizer(syn_texts, padding='max_length', truncation=True, max_length=max_length, return_tensors="pt")
-                
-                # 토큰 ID를 디바이스로 이동
-                input_ids = syn_texts_tokenized['input_ids'].to(device)
-                
-                # 모델에 텍스트를 인코딩하여 임베딩 생성
-                teacher_syn_texts = model.encode_text(input_ids)
-            else:
-                raise ValueError(f"Unexpected type for syn_texts: {type(syn_texts)}")
-            
-            print("texts shape:", texts.shape)
-            print("teacher_syn_texts shape:", teacher_syn_texts.shape)
-            
-            
-            # ! teacher_syn_texts를 texts와 같은 모양으로 조정
-            if teacher_syn_texts.dim() == 2:
-                teacher_syn_texts = teacher_syn_texts.unsqueeze(1).expand(-1, 7, -1)
-            
-            # ! 마지막 차원을 1536으로 조정 
-            if teacher_syn_texts.shape[-1] != 1536:
-                adjust_layer = nn.Linear(teacher_syn_texts.shape[-1], 1536).to(device)
-                teacher_syn_texts = adjust_layer(teacher_syn_texts)
-            
-            print("teacher_syn_texts 조정 후 shape:", teacher_syn_texts.shape)
-        
-
-            # ! 텍스트와 synthetic 텍스트 임베딩을 결합
-            texts = torch.cat([texts, teacher_syn_texts], dim=0)
-            print("최종 연결된 texts shape:", texts.shape)
+            syn_texts = batch[4].to(device=device, non_blocking=True)
+            # ! 확인
+            # teacher_syn_texts = batch[5].to(device=device, non_blocking=True)
+            texts = torch.cat([texts, syn_texts[:, :texts.shape[-1]]], dim=0)
 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
         if args.accum_freq == 1:
             with autocast():
-                # model_out = model(images, texts)
-                image_features = model.encode_image(images)
-                text_features = model.encode_text(texts)
-                model_out = (image_features, text_features, model.logit_scale.exp())
+                model_out = model(images, texts)
 
                 if isinstance(model_out, tuple):
                     model_out = model_out[0]  # tuple의 첫 번째 요소가 dict일 것이라고 가정
@@ -180,21 +128,29 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                     if args.dataset_reinforcement:
                         batch_size = images.shape[0]
                         model_out.update({
+                            # ! 확인
                             'dist_image_features': teacher_images,
                             'dist_text_features': teacher_texts,
+
+                            'dist_image_features': batch[2].to(device=device, non_blocking=True),
++                        'dist_text_features': batch[3].to(device=device, non_blocking=True),
                         })
                         if not args.dataset_reinforcement_mix_synthetic:
                             model_out.update({
                                 "text_features": model_out["text_features"][:batch_size],
                                 "syn_text_features": model_out["text_features"][batch_size:],
-                                'dist_syn_text_features': teacher_syn_texts
+
+                                # !확인 
+                                # 'dist_syn_text_features': teacher_syn_texts
+                                'dist_syn_text_features': batch[5].to(device=device, non_blocking=True)
                             })
-                            
+
                     losses = loss(**model_out, output_dict=True)
                     total_loss = sum(losses.values())
                     losses["loss"] = total_loss
 
                 else:
+                    # Tensor일 경우 처리 방법을 정의합니다
                     raise ValueError(f"Unexpected model output type: {type(model_out)}")
 
             backward(total_loss, scaler)
@@ -203,10 +159,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             # Gradient Accumulation
             with torch.no_grad():
                 with autocast():
-                    # model_out = model(images, texts)
-                    image_features = model.encode_image(images)
-                    text_features = model.encode_text(texts)
-                    model_out = (image_features, text_features, model.logit_scale.exp())
+                    model_out = model(images, texts)
 
                     if isinstance(model_out, tuple):
                         model_out = model_out[0]  # tuple의 첫 번째 요소가 dict일 것이라고 가정
@@ -231,7 +184,9 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 accum_teacher_images.append(teacher_images)
                 accum_teacher_texts.append(teacher_texts)
                 if args.dataset_reinforcement and not args.dataset_reinforcement_mix_synthetic:
-                    accum_syn_texts.append(teacher_syn_texts)
+                    # ! 확인
+                    # accum_syn_texts.append(teacher_syn_texts)
+                    accum_syn_texts.append(batch[5].to(device=device, non_blocking=True))
 
             if ((i + 1) % args.accum_freq) > 0:
                 print("accum_freq: ", args.accum_freq)
@@ -246,10 +201,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 images = accum_images[j]
                 texts = accum_texts[j]
                 with autocast():
-                    # model_out = model(images, texts)
-                    image_features = model.encode_image(images)
-                    text_features = model.encode_text(texts)
-                    model_out = (image_features, text_features, model.logit_scale.exp())
+                    model_out = model(images, texts)
 
                     inputs_no_accum = {}
                     inputs_no_accum["logit_scale"] = logit_scale = model_out.pop("logit_scale")
@@ -410,10 +362,10 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
                 texts = texts.to(device=device, non_blocking=True)
 
                 with autocast():
-                    # model_out = model(images, texts)
-                    image_features = model.encode_image(images)
-                    text_features = model.encode_text(texts)
-                    model_out = (image_features, text_features, model.logit_scale.exp())
+                    model_out = model(images, texts)
+                    image_features = model_out["image_features"]
+                    text_features = model_out["text_features"]
+                    logit_scale = model_out["logit_scale"]
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
                     # however, system RAM is easily exceeded and compute time becomes problematic
                     all_image_features.append(image_features.cpu())

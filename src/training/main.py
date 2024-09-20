@@ -28,15 +28,15 @@ try:
 except ImportError:
     hvd = None
 
-from open_clip import create_model_and_transforms, trace_model, get_tokenizer, create_loss
-from src.training.data import get_datacomp_12m_dataset, get_data
+from open_clip import create_model_and_transforms, trace_model, get_tokenizer, create_loss, image_transform
+from src.training.data import get_data
 from src.training.distributed import is_master, init_distributed_device, broadcast_object
 from src.training.logger import setup_logging
 from src.training.params import parse_args
 from src.training.scheduler import cosine_lr, const_lr, const_lr_cooldown
 from src.training.train import train_one_epoch, evaluate
 from src.training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
-
+from transformers import AutoTokenizer, AutoFeatureExtractor
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
@@ -354,13 +354,21 @@ def main(args):
             model.load_state_dict(checkpoint)
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
-    # initialize datasets
+    # ! 수정 
+            
     tokenizer = get_tokenizer(args.model)
-    data = get_data(
-        args,
-        (preprocess_train, preprocess_val),
-        tokenizer=tokenizer,
-    )
+    # tokenizer = AutoTokenizer.from_pretrained(args.model_repo, use_fast=True)
+    image_processor = image_transform(is_train=True, image_size=224)
+
+    def preprocess_train(image):
+        return image_processor(image, return_tensors="pt")["pixel_values"][0]
+
+    def preprocess_val(image):
+        return image_processor(image, return_tensors="pt")["pixel_values"][0]
+
+    preprocess_fns = (preprocess_train, preprocess_val)
+    data = get_data(args, preprocess_fns, tokenizer=tokenizer)
+
     assert len(data), 'At least one train or eval dataset must be specified.'
 
 
@@ -442,11 +450,7 @@ def main(args):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
 
-        # !매 에포크마다 데이터 로더 재생성
-        if 'train' in data:
-            data['train'], _ = get_datacomp_12m_dataset(args, preprocess_train, is_train=True, tokenizer=tokenizer)
-        
-        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
+        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args)
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
