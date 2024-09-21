@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
 from mamba_ssm.models.config_mamba import MambaConfig
+from mambavision.models.mamba_vision import MambaVision
+
 
 import torch
 
@@ -22,7 +24,6 @@ from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrain
     list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform_v2, AugmentationCfg, PreprocessCfg, merge_preprocess_dict, merge_preprocess_kwargs
 from .tokenizer import HFTokenizer, SimpleTokenizer, DEFAULT_CONTEXT_LENGTH
-from models.mamba2 import CLIPMamba2TextEncoder
 import open_clip
 
 HF_HUB_PREFIX = 'hf-hub:'
@@ -424,13 +425,8 @@ def create_model_and_transforms(
         base_model, _, preprocess_val = open_clip.create_model_and_transforms('ViT-B-32',device=device)
         base_model.eval()
 
-        # Mamba2 텍스트 인코더 파라미터 설정
+        # Mamba2 텍스트 인코더 설정
         vocab_size = base_model.token_embedding.weight.shape[0]
-        # max_seq_len = base_model.context_length
-        output_dim = base_model.text_projection.shape[1]
-
-
-
         config = MambaConfig(
             d_model=mamba_d_model,
             n_layer=mamba_n_layer,
@@ -441,15 +437,25 @@ def create_model_and_transforms(
             fused_add_norm=True,
             pad_vocab_size_multiple=16,
         )
-
         device = "cuda"
         dtype = torch.float16
-
         mamba_encoder = MambaLMHeadModel(config, device=device, dtype=dtype)
         base_model.text = mamba_encoder
-
-        model = base_model
         
+        # MambaVision 비전 인코더 설정
+        mamba_encoder = MambaVision(depths=[1, 3, 12, 6],
+                    num_heads=[1, 2, 10, 8],
+                    window_size=[4, 4, 12, 8],
+                    dim=40,
+                    in_dim=32,
+                    mlp_ratio=4,
+                    resolution=224,
+                    drop_path_rate=0.2
+                    )
+        
+        base_model.visual = mamba_encoder
+        model = base_model
+
         preprocess_train = preprocess_val
     else:
 
