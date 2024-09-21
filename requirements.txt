@@ -16,3 +16,5 @@ transformers
 timm>=0.9.8
 fsspec
 wandb
+causal-conv1d>=1.4.0
+mamba-ssm

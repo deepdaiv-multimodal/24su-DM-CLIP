@@ -262,9 +262,22 @@ class CLIP(nn.Module):
         self.visual.set_grad_checkpointing(enable)
         self.transformer.grad_checkpointing = enable
 
+    #! 수정
     def encode_image(self, image, normalize: bool = False):
-        features = self.visual(image)
-        return F.normalize(features, dim=-1) if normalize else features
+        if image is None:
+            return None
+        
+        if image.dim() == 3 and image.size(1) == 2048 and image.size(2) == 30:
+            # 이미 임베딩된 이미지인 경우
+            features = image.view(image.size(0), -1)
+        else:
+            # 원본 이미지인 경우
+            features = self.visual(image)
+
+        if normalize:
+            features = F.normalize(features, dim=-1)
+        
+        return features
 
     def encode_text(self, text, normalize: bool = False):
         cast_dtype = self.transformer.get_cast_dtype()
@@ -299,7 +312,7 @@ class CLIP(nn.Module):
     ):
         image_features = self.encode_image(image, normalize=True) if image is not None else None
         text_features = self.encode_text(text, normalize=True) if text is not None else None
-
+    
         if self.output_dict:
             out_dict = {
                 "image_features": image_features,

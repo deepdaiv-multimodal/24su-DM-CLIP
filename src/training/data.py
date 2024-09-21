@@ -22,6 +22,7 @@ from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander
 from src.training.dr.transforms import compose_from_config
 import requests
 from io import BytesIO
+from huggingface_hub import HfFileSystem, get_token, hf_hub_url
 
 try:
     import horovod.torch as hvd
@@ -627,6 +628,98 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
     return DataInfo(dataloader, sampler)
 
 
+def get_datacomp_dataset(args, preprocess_fns, is_train, epoch=0, floor=False, tokenizer=None):
+    preprocess_img = preprocess_fns[0] if is_train else preprocess_fns[1]
+    
+    fs = HfFileSystem()
+    files = [fs.resolve_path(path) for path in fs.glob("hf://datasets/apple/DataCompDR-12M/00000000.tar")]
+    urls = [hf_hub_url(file.repo_id, file.path_in_repo, repo_type="dataset") for file in files]
+    
+    BF16_URL = f"https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/0000000{shard_idx}.tar"
+    DATA_COMP12M_URL = f"https://huggingface.co/datasets/mlfoundations/DataComp-12M/resolve/main/0000000{shard_idx}.tar"
+    
+    # 두 데이터셋을 WebDataset 객체로 생성
+    bf16_dataset = wds.WebDataset(BF16_URL)
+    datacomp12m_dataset = wds.WebDataset(DATA_COMP12M_URL)
+
+    # 파이프라인 정의
+    bf16_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(url="url.txt", syn="syn.json", paug="paug.json", pth="pth.gz", json="json"),
+        wds.to_tuple("url", "syn", "paug", "pth", "json"),   
+    ]
+    datacomp12m_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(json="json", txt="txt"),
+        wds.to_tuple("json", "txt"),
+    ]
+
+    shared_epoch = SharedEpoch(epoch=epoch)
+    
+    bf16_dataset = bf16_dataset.compose(*bf16_pipeline)
+    datacomp12m_dataset = datacomp12m_dataset.compose(*datacomp12m_pipeline)
+
+    # 샘플 정보 저장
+    samples = defaultdict(dict)
+    
+
+    pipeline = [
+        wds.SimpleShardList(urls),
+        detshuffle2(
+            bufsize=_SHARD_SHUFFLE_SIZE,
+            initial=_SHARD_SHUFFLE_INITIAL,
+            seed=args.seed,
+            epoch=shared_epoch,
+        ),
+        wds.split_by_node,
+        wds.split_by_worker,
+        tarfile_to_samples_nothrow,
+        wds.shuffle(
+            bufsize=_SAMPLE_SHUFFLE_SIZE,
+            initial=_SAMPLE_SHUFFLE_INITIAL,
+        ),
+    ]
+
+    pipeline.extend([
+        wds.select(filter_no_caption_or_no_image),
+        wds.decode("pilrgba", handler=log_and_continue),
+        wds.rename(image="jpg;png;jpeg;webp", text="txt"),
+        wds.map_dict(image=preprocess_img, text=lambda text: tokenizer(text)[0]),
+        wds.to_tuple("image", "text"),
+        wds.batched(args.batch_size, partial=not is_train)
+    ])
+
+    dataset = wds.DataPipeline(*pipeline)
+
+    if is_train:
+        num_samples = args.train_num_samples
+        round_fn = math.floor if floor else math.ceil
+        global_batch_size = args.batch_size * args.world_size
+        num_batches = round_fn(num_samples / global_batch_size)
+        num_workers = max(1, args.workers)
+        num_worker_batches = round_fn(num_batches / num_workers)
+        num_batches = num_worker_batches * num_workers
+        num_samples = num_batches * global_batch_size
+        dataset = dataset.with_epoch(num_worker_batches)
+    else:
+        num_samples = args.val_num_samples or 0
+        num_batches = math.ceil(num_samples / args.batch_size)
+
+    dataloader = wds.WebLoader(
+        dataset,
+        batch_size=None,
+        shuffle=False,
+        num_workers=args.workers,
+        persistent_workers=args.workers > 0,
+        pin_memory=True
+    )
+
+    dataloader.num_batches = num_batches
+    dataloader.num_samples = num_samples
+
+    return DataInfo(dataloader=dataloader, shared_epoch=shared_epoch)
+
+
 def get_dataset_fn(data_path, dataset_type):
     if dataset_type == "webdataset":
         return get_wds_dataset
@@ -634,6 +727,8 @@ def get_dataset_fn(data_path, dataset_type):
         return get_csv_dataset
     elif dataset_type == "synthetic":
         return get_synthetic_dataset
+    elif dataset_type == "datacomp":
+        return get_datacomp_dataset
     elif dataset_type == "auto":
         ext = data_path.split('.')[-1]
         if ext in ['csv', 'tsv']:
@@ -648,16 +743,19 @@ def get_dataset_fn(data_path, dataset_type):
 
 
 def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
+    if not isinstance(preprocess_fns, tuple) or len(preprocess_fns) != 2:
+        raise ValueError("Expected preprocess_fns to be a tuple of (preprocess_train, preprocess_val)")
+    
     preprocess_train, preprocess_val = preprocess_fns
-    data = {}
-
-    if args.train_data or args.dataset_type == "synthetic":
+    data = { }
+    
+    if args.train_data or args.dataset_type == "synthetic" or args.dataset_type == "datacomp":
         data["train"] = get_dataset_fn(args.train_data, args.dataset_type)(
-            args, preprocess_train, is_train=True, epoch=epoch, tokenizer=tokenizer)
+            args, preprocess_fns, is_train=True, epoch=epoch, tokenizer=tokenizer)
 
     if args.val_data:
         data["val"] = get_dataset_fn(args.val_data, args.dataset_type)(
-            args, preprocess_val, is_train=False, tokenizer=tokenizer)
+            args, preprocess_fns, is_train=False, tokenizer=tokenizer)
 
     if args.imagenet_val is not None:
         data["imagenet-val"] = get_imagenet(args, preprocess_fns, "val")

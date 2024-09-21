@@ -42,10 +42,29 @@ def parse_args(args):
         )
     )
     parser.add_argument(
+        '--steps_per_epoch',
+        type=int,
+        default=1000,
+        help='한 에포크당 스텝 수 (WebDataset용)'
+    )
+    
+    parser.add_argument(
         "--val-data",
         type=str,
         default=None,
         help="Path to file(s) with validation data",
+    )
+    parser.add_argument(
+        "--mamba-d-model", 
+        type=int,
+        default=480,
+        help='Mamba model dimension'
+    )
+    parser.add_argument(
+        "--mamba-n-layer", 
+        type=int, 
+        default=24, 
+        help='Number of Mamba layers'
     )
     parser.add_argument(
         "--train-num-samples",
@@ -61,7 +80,7 @@ def parse_args(args):
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["webdataset", "csv", "synthetic", "auto"],
+        choices=["webdataset", "csv", "synthetic", "auto", "datacomp"],
         default="auto",
         help="Which type of dataset to process."
     )
