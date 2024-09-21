@@ -356,21 +356,14 @@ def main(args):
 
     # ! 수정 
             
+   
     tokenizer = get_tokenizer(args.model)
-    # tokenizer = AutoTokenizer.from_pretrained(args.model_repo, use_fast=True)
-    image_processor = image_transform(is_train=True, image_size=224)
-
-    def preprocess_train(image):
-        return image_processor(image, return_tensors="pt")["pixel_values"][0]
-
-    def preprocess_val(image):
-        return image_processor(image, return_tensors="pt")["pixel_values"][0]
-
-    preprocess_fns = (preprocess_train, preprocess_val)
-    data = get_data(args, preprocess_fns, tokenizer=tokenizer)
-
-    assert len(data), 'At least one train or eval dataset must be specified.'
-
+    data = get_data(
+        args,
+        (preprocess_train, preprocess_val),
+        epoch=start_epoch,
+        tokenizer=tokenizer,
+    )
 
     # create scheduler if train
     scheduler = None
