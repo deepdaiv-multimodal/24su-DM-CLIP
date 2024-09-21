@@ -1,5 +1,4 @@
 import open_clip
-# from models.mamba2 import CLIPMamba2TextEncoder
 from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
 from mamba_ssm.models.config_mamba import MambaConfig
 import torch

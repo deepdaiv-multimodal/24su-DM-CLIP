@@ -5,6 +5,13 @@ num_seen_samples=$((30*1000*global_batch_size))
 exp_name="mambaCLIP_datacompdr12m_s30m_single_gpu_$(date +%Y-%m-%d_%H-%M-%S)"
 num_checkpoints=20  
 
+# grad_checkpointing
+
+# TODO:
+# 1. 모델 사이즈별 config 파일 만들고. 모델명으로 구분하도록 수정
+# 2. batch size 2*13 = 8192로 수정
+# 3. num_seen_samples 13B로 수정
+
 # HuggingFace 데이터셋 URL로 변경
 data="pipe:curl -L -s -H 'Authorization: Bearer ${HUGGINGFACE_TOKEN}' https://huggingface.co/datasets/apple/DataCompDR-12M/resolve/main/{00000000..00000000}.tar"
 
@@ -13,7 +20,6 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --local-loss \
     --accum-freq 4 \
     --gather-with-grad \
-    --grad-checkpointing \
     --train-data "$data" \
     --train-num-samples 7 \
     --warmup 1000 \
