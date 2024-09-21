@@ -632,11 +632,36 @@ def get_datacomp_dataset(args, preprocess_fns, is_train, epoch=0, floor=False, t
     preprocess_img = preprocess_fns[0] if is_train else preprocess_fns[1]
     
     fs = HfFileSystem()
-    files = [fs.resolve_path(path) for path in fs.glob("hf://datasets/apple/DataCompDR-12M/**/*.tar")]
+    files = [fs.resolve_path(path) for path in fs.glob("hf://datasets/apple/DataCompDR-12M/00000000.tar")]
     urls = [hf_hub_url(file.repo_id, file.path_in_repo, repo_type="dataset") for file in files]
-    urls = f"pipe:curl -s -L -H 'Authorization:Bearer {get_token()}' {' '.join(urls)}"
+    
+    BF16_URL = f"https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/0000000{shard_idx}.tar"
+    DATA_COMP12M_URL = f"https://huggingface.co/datasets/mlfoundations/DataComp-12M/resolve/main/0000000{shard_idx}.tar"
+    
+    # 두 데이터셋을 WebDataset 객체로 생성
+    bf16_dataset = wds.WebDataset(BF16_URL)
+    datacomp12m_dataset = wds.WebDataset(DATA_COMP12M_URL)
+
+    # 파이프라인 정의
+    bf16_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(url="url.txt", syn="syn.json", paug="paug.json", pth="pth.gz", json="json"),
+        wds.to_tuple("url", "syn", "paug", "pth", "json"),   
+    ]
+    datacomp12m_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(json="json", txt="txt"),
+        wds.to_tuple("json", "txt"),
+    ]
 
     shared_epoch = SharedEpoch(epoch=epoch)
+    
+    bf16_dataset = bf16_dataset.compose(*bf16_pipeline)
+    datacomp12m_dataset = datacomp12m_dataset.compose(*datacomp12m_pipeline)
+
+    # 샘플 정보 저장
+    samples = defaultdict(dict)
+    
 
     pipeline = [
         wds.SimpleShardList(urls),

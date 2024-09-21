@@ -1,126 +1,142 @@
+import tarfile
 import os
+import json
+from collections import defaultdict
+import braceexpand
 import requests
 from io import BytesIO
 from PIL import Image
+import shutil  
 import webdataset as wds
+from multiprocessing import Pool
+import torch
+import gzip
 from tqdm import tqdm
-from huggingface_hub import HfFileSystem, get_token, hf_hub_url
-import json
 
-def preprocess_sample(sample, tokenizer):
+
+def merge_and_download_images(shard_idx, output_dir):
     """
-    WebDataset 샘플을 전처리합니다.
-    스트리밍 방식으로 이미지를 다운로드하고 텍스트를 토크나이징합니다.
+    두 개의 DataCompDR-12M 데이터셋 샤드를 병합하고, 이미지를 다운로드하여 새로운 .tar 파일로 저장합니다.
 
     Args:
-        sample: WebDataset 샘플 (이미지 URL, 텍스트 포함)
-        tokenizer: 텍스트 토크나이저
-
-    Returns:
-        전처리된 이미지 및 토큰화된 텍스트
+        shard_idx: 샤드 파일 인덱스 (0부터 시작)
+        output_dir: 새로운 .tar 파일을 저장할 디렉토리 경로
     """
-    try:
-        # sample은 (image_url, text) 형식의 튜플일 것으로 가정
-        image_url = sample[0]  # '__url__' 대신 0번 인덱스
-        text_file = sample[1]  # 'syn.json' 대신 1번 인덱스
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 데이터셋 URL (스트리밍 방식)
+    BF16_URL = f"https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/0000000{shard_idx}.tar"
+    DATA_COMP12M_URL = f"https://huggingface.co/datasets/mlfoundations/DataComp-12M/resolve/main/0000000{shard_idx}.tar"
+
+    # 두 데이터셋을 WebDataset 객체로 생성
+    bf16_dataset = wds.WebDataset(BF16_URL)
+    datacomp12m_dataset = wds.WebDataset(DATA_COMP12M_URL)
+
+    # 파이프라인 정의
+    bf16_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(url="url.txt", syn="syn.json", paug="paug.json", pth="pth.gz", json="json"),
+        wds.to_tuple("url", "syn", "paug", "pth", "json"),   
+    ]
+    datacomp12m_pipeline = [
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.rename(json="json", txt="txt"),
+        wds.to_tuple("json", "txt"),
+    ]
+    bf16_dataset = bf16_dataset.compose(*bf16_pipeline)
+    datacomp12m_dataset = datacomp12m_dataset.compose(*datacomp12m_pipeline)
+
+    # 샘플 정보 저장
+    samples = defaultdict(dict)
+
+    # 임시 폴더 생성
+    temp_dir = os.path.join(output_dir, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # bf16 데이터셋에서 샘플 정보 추출
+    for sample in bf16_dataset:
+        # json 파일에 uid가 포함
+        uid = sample[4]["uid"]
+        samples[uid]["url"] = sample[0]
+        samples[uid]["syn"] = sample[1]
+        samples[uid]["paug"] = sample[2]
+        samples[uid]["pth"] = sample[3]
+        samples[uid]["json"] = sample[4]
+
+    # DataComp12M 데이터셋에서 txt 파일 정보 추출 및 병합
+    for sample in datacomp12m_dataset:
+        uid = sample[0]["uid"]
+        samples[uid]["txt"] = sample[1]
+
+    # 성공적으로 다운로드된 샘플 개수
+    success_count = 0
+    total_samples = 0
+
+    # 이미지 다운로드 및 저장 (tqdm 사용)
+    for uid, data in samples.items():
+        url = data["url"]
+        try:
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()  # HTTP 에러 발생 시 예외 발생
+            image = Image.open(BytesIO(response.content)).convert("RGB")
+            image_name = f"{uid}.jpg"
+            image_path = os.path.join(temp_dir, image_name)
+            image.save(image_path, "JPEG")
+
+            # 나머지 파일 저장 (파일 경로 수정)
+            with open(os.path.join(temp_dir, f"{uid}.syn.json"), "w") as f:
+                json.dump(data["syn"], f)
+            with open(os.path.join(temp_dir, f"{uid}.paug.json"), "w") as f:
+                json.dump(data["paug"], f)
+
+            pth_path = os.path.join(temp_dir, f"{uid}.pth.gz")
+            with gzip.open(pth_path, "wb") as f:
+                torch.save(data["pth"], f)
+
+            with open(os.path.join(temp_dir, f"{uid}.json"), "w") as f:
+                json.dump(data["json"], f)
+
+            with open(os.path.join(temp_dir, f"{uid}.txt"), "w") as f:
+                f.write(data["txt"])
+
+            success_count += 1
+            total_samples += 1
+
+        except Exception as e:
+            # print(f"Error downloading or saving image from {url}: {e}")
+            # 이미지 다운로드 실패 시 해당 샘플 관련 파일 제거
+            for ext in ['.jpg', '.txt', '.json', '.syn.json', '.paug.json', '.pth.gz']:
+                file_path = os.path.join(temp_dir, uid + ext)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            total_samples += 1
+            continue
+
+    # 임시 폴더를 .tar 파일로 압축
+    output_shard_path = os.path.join(output_dir, f"0000000{shard_idx}.tar")
+    with tarfile.open(output_shard_path, "w") as new_tar:
+        for filename in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, filename)
+            new_tar.add(file_path, arcname=filename)
+
+    print(f"Filtered and repacked shard (with {len(os.listdir(temp_dir))} samples) saved to: {output_shard_path}")
+    print(f"Shard {shard_idx}: Success rate: {success_count / total_samples * 100:.2f}%")  # 성공률 출력
+
+    # 임시 폴더 삭제
+    shutil.rmtree(temp_dir)
 
 
-        # 이미지 다운로드
-        response = requests.get(image_url, headers={"Authorization": f"Bearer {get_token()}"}, timeout=5)
-        response.raise_for_status()
-        image = Image.open(BytesIO(response.content)).convert("RGB")
-
-        # 텍스트 전처리 (JSON 파일)
-        text = json.loads(text_file)
-        
-        return image, tokenizer(text)
-    
-    
-    except Exception as e:
-        print(f"Error processing sample: {e}")
-        return None
-
-def print_sample_keys(dataset):
-    for sample in dataset:
-        print(sample.keys())
-        break  # 첫 번째 샘플만 출력하고 종료
-
-
-def get_webdataset(args, preprocess_fn, tokenizer):
-    """
-    WebDataset을 스트리밍 방식으로 가져옵니다.
-
-    Args:
-        args: 데이터셋 및 배치 관련 인자
-        preprocess_fn: 샘플을 전처리하는 함수
-        tokenizer: 텍스트 토크나이저
-
-    Returns:
-        WebDataset dataloader
-    """
-    # Hugging Face dataset에서 WebDataset tar 파일 목록 가져오기
-    fs = HfFileSystem()
-    files = [fs.resolve_path(path) for path in fs.glob("hf://datasets/apple/DataCompDR-12M/**/*.tar")]
-    urls = [hf_hub_url(file.repo_id, file.path_in_repo, repo_type="dataset") for file in files]
-    
-    # 데이터셋을 가져와서 키를 확인합니다.
-    dataset = wds.WebDataset(urls)
-    # print_sample_keys(dataset)
-
-    # WebDataset을 스트리밍 방식으로 불러오기
-    dataset = (
-        wds.WebDataset(urls)
-        .decode("pil", handler=wds.handlers.warn_and_continue)
-        .to_tuple("__url__", "syn.json")  # 필드 이름이 아닌 인덱스를 사용할 수 있음
-        .map(lambda sample: preprocess_fn(sample, tokenizer))  # 전처리 함수 적용
-        .batched(args.batch_size)  # 배치로 묶기
-    )
-
-    return dataset
-
-def get_data(args, preprocess_fns, tokenizer=None):
-    """
-    데이터셋을 WebDataset 스트리밍 방식으로 불러옵니다.
-
-    Args:
-        args: 데이터셋 및 배치 관련 인자
-        preprocess_fns: 전처리 함수들 (train, validation용)
-        tokenizer: 텍스트 토크나이저
-
-    Returns:
-        train, validation 데이터 로더
-    """
-    preprocess_train, preprocess_val = preprocess_fns
-    data = {}
-
-    if args.train_data:
-        data["train"] = get_webdataset(args, preprocess_train, tokenizer=tokenizer)
-
-    if args.val_data:
-        data["val"] = get_webdataset(args, preprocess_val, tokenizer=tokenizer)
-
-    return data
-
-# 실행 예시
 if __name__ == "__main__":
-    class Args:
-        start_shard_idx = 0
-        end_shard_idx = 1
-        batch_size = 32
-        train_data = True
-        val_data = False
+    # 샤드 파일 개수 설정 (0부터 시작)
+    start_shard_idx = 1
+    end_shard_idx = 1
 
-    args = Args()
-    tokenizer = lambda x: x  # 실제로는 CLIPTokenizer 같은 텍스트 토크나이저를 사용
+    # 새로운 .tar 파일 저장 디렉토리
+    output_dir = "DataCompDR-12M/merged_shards"
 
-    # 전처리 함수 (이미지 전처리, 텍스트 토크나이징 등)
-    preprocess_train_fn = preprocess_sample
-    preprocess_val_fn = preprocess_sample
-
-    data_loaders = get_data(args, (preprocess_train_fn, preprocess_val_fn), tokenizer=tokenizer)
-
-    # 예시: train 데이터셋에서 배치 처리
-    for batch in tqdm(data_loaders["train"], desc="Training data processing"):
-        images, texts = batch  # 배치에서 이미지와 텍스트 가져오기
-        # 여기서 이미지를 모델에 넣어 학습 가능
-        print(f"Batch images: {len(images)}, Batch texts: {len(texts)}")
+    # 병렬 처리를 위한 프로세스 풀 생성 (CPU 코어 개수에 맞춰 조정 가능)
+    num_processes = os.cpu_count()
+    print(f"Using {num_processes} processes for parallel processing.")
+    with Pool(processes=num_processes) as pool:
+        # 각 샤드 파일을 병렬로 처리
+        pool.starmap(merge_and_download_images, [(i, output_dir) for i in range(start_shard_idx, end_shard_idx + 1)])
