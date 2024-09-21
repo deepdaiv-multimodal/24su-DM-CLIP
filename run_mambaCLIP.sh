@@ -42,4 +42,5 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --distill-teacher-dimension 768 768 \
     --distill-average-after-softmax \
     --mamba-d-model 512 \
-    --mamba-n-layer 12 \
+    --mamba-n-layer 12 
+sleep 600

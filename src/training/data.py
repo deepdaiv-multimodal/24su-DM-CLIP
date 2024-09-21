@@ -633,62 +633,41 @@ def get_datacomp_dataset(args, preprocess_fns, is_train, epoch=0, floor=False, t
     
     fs = HfFileSystem()
     files = [fs.resolve_path(path) for path in fs.glob("hf://datasets/apple/DataCompDR-12M/00000000.tar")]
-    urls = [hf_hub_url(file.repo_id, file.path_in_repo, repo_type="dataset") for file in files]
+    DATA_COMP12M_URL= [hf_hub_url(file.repo_id, file.path_in_repo, repo_type="dataset") for file in files]
     
-    BF16_URL = f"https://huggingface.co/datasets/apple/DataCompDR-12M-bf16/resolve/main/0000000{shard_idx}.tar"
-    DATA_COMP12M_URL = f"https://huggingface.co/datasets/mlfoundations/DataComp-12M/resolve/main/0000000{shard_idx}.tar"
+    # DATA_COMP12M_URL= hf_hub_url(repo_id="pple/DataCompDR-12M", filename="00000000.tar", repo_type="dataset")
     
-    # 두 데이터셋을 WebDataset 객체로 생성
-    bf16_dataset = wds.WebDataset(BF16_URL)
-    datacomp12m_dataset = wds.WebDataset(DATA_COMP12M_URL)
+    # bfFiles = [fs.resolve_path(path) for path in fs.glob("hf://huggingface.co/datasets/apple/DataCompDR-12M-bf16")]
 
-    # 파이프라인 정의
-    bf16_pipeline = [
-        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
-        wds.rename(url="url.txt", syn="syn.json", paug="paug.json", pth="pth.gz", json="json"),
-        wds.to_tuple("url", "syn", "paug", "pth", "json"),   
-    ]
-    datacomp12m_pipeline = [
-        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
-        wds.rename(json="json", txt="txt"),
-        wds.to_tuple("json", "txt"),
-    ]
+    BF16_URL = hf_hub_url(repo_id="apple/DataCompDR-12M-bf16", filename="000000000.tar", repo_type="dataset")
+    # DATA_COMP12M_URL = hf_hub_url(repo_id="apple/DataComp-12M", filename="0000000.tar", repo_type="dataset")
+    
 
     shared_epoch = SharedEpoch(epoch=epoch)
     
-    bf16_dataset = bf16_dataset.compose(*bf16_pipeline)
-    datacomp12m_dataset = datacomp12m_dataset.compose(*datacomp12m_pipeline)
-
-    # 샘플 정보 저장
-    samples = defaultdict(dict)
+    def merge_samples(sample):
+        if 'json' in sample and 'txt' in sample:
+            sample['text'] = sample.pop('txt')
+        return sample
     
-
+    
     pipeline = [
-        wds.SimpleShardList(urls),
-        detshuffle2(
-            bufsize=_SHARD_SHUFFLE_SIZE,
-            initial=_SHARD_SHUFFLE_INITIAL,
-            seed=args.seed,
-            epoch=shared_epoch,
-        ),
-        wds.split_by_node,
-        wds.split_by_worker,
-        tarfile_to_samples_nothrow,
-        wds.shuffle(
-            bufsize=_SAMPLE_SHUFFLE_SIZE,
-            initial=_SAMPLE_SHUFFLE_INITIAL,
-        ),
-    ]
-
-    pipeline.extend([
-        wds.select(filter_no_caption_or_no_image),
-        wds.decode("pilrgba", handler=log_and_continue),
+        wds.SimpleShardList([BF16_URL, DATA_COMP12M_URL]),
+        wds.tarfile_to_samples(handler=wds.warn_and_continue),
+        wds.decode("pilrgba", handler=wds.handlers.warn_and_continue),
+        wds.map(merge_samples),
+        wds.select(lambda x :'txt' in x and 'json' in x),
         wds.rename(image="jpg;png;jpeg;webp", text="txt"),
+        wds.select(filter_no_caption_or_no_image),
         wds.map_dict(image=preprocess_img, text=lambda text: tokenizer(text)[0]),
         wds.to_tuple("image", "text"),
-        wds.batched(args.batch_size, partial=not is_train)
-    ])
 
+    ]
+    
+    if is_train:
+        pipeline.insert(2,wds.shuffle(1000))
+        
+        
     dataset = wds.DataPipeline(*pipeline)
 
     if is_train:
