@@ -6,8 +6,6 @@ from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
-from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
-from mamba_ssm.models.config_mamba import MambaConfig
 from mambavision.models.mamba_vision import MambaVision
 
 
@@ -420,74 +418,80 @@ def create_model_and_transforms(
     force_preprocess_cfg = merge_preprocess_kwargs(
         {}, mean=image_mean, std=image_std, interpolation=image_interpolation, resize_mode=image_resize_mode)
 
-    device = torch.device("cuda")
-    if model_name == "MambaCLIP":
-        base_model, _, preprocess_val = open_clip.create_model_and_transforms('ViT-B-32',device=device)
-        base_model.eval()
+    model = create_model(
+        model_name,
+        pretrained,
+        precision=precision,
+        device=device,
+        jit=jit,
+        force_quick_gelu=force_quick_gelu,
+        force_custom_text=force_custom_text,
+        force_patch_dropout=force_patch_dropout,
+        force_image_size=force_image_size,
+        force_preprocess_cfg=force_preprocess_cfg,
+        pretrained_image=pretrained_image,
+        pretrained_hf=pretrained_hf,
+        cache_dir=cache_dir,
+        output_dict=output_dict,
+        **model_kwargs,
+    )
 
-        # Mamba2 텍스트 인코더 설정
-        vocab_size = base_model.token_embedding.weight.shape[0]
-        config = MambaConfig(
-            d_model=mamba_d_model,
-            n_layer=mamba_n_layer,
-            vocab_size=vocab_size,
-            ssm_cfg=dict(layer="Mamba2"),
-            rms_norm=True,
-            residual_in_fp32=True,
-            fused_add_norm=True,
-            pad_vocab_size_multiple=16,
-        )
-        device = "cuda"
-        dtype = torch.float16
-        mamba_encoder = MambaLMHeadModel(config, device=device, dtype=dtype)
-        base_model.text = mamba_encoder
-        
-        # MambaVision 비전 인코더 설정
-        mamba_encoder = MambaVision(depths=[1, 3, 12, 6],
-                    num_heads=[1, 2, 10, 8],
-                    window_size=[4, 4, 12, 8],
-                    dim=40,
+    pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
+
+    preprocess_train = image_transform_v2(
+        pp_cfg,
+        is_train=True,
+        aug_cfg=aug_cfg,
+    )
+    preprocess_val = image_transform_v2(
+        pp_cfg,
+        is_train=False,
+    )
+
+    # 20.5M
+    if model_name == "MobileCLIP-S1":
+        model.eval()
+        model.visual = None
+        model.visual = MambaVision(depths=[1, 3, 8, 4],
+                    num_heads=[2, 4, 8, 16],
+                    window_size=[8, 8, 14, 7],
+                    dim=64,
                     in_dim=32,
                     mlp_ratio=4,
                     resolution=224,
-                    drop_path_rate=0.2
-                    )
-        
-        base_model.visual = mamba_encoder
-        model = base_model
-
-        preprocess_train = preprocess_val
-    else:
-
-        model = create_model(
-            model_name,
-            pretrained,
-            precision=precision,
-            device=device,
-            jit=jit,
-            force_quick_gelu=force_quick_gelu,
-            force_custom_text=force_custom_text,
-            force_patch_dropout=force_patch_dropout,
-            force_image_size=force_image_size,
-            force_preprocess_cfg=force_preprocess_cfg,
-            pretrained_image=pretrained_image,
-            pretrained_hf=pretrained_hf,
-            cache_dir=cache_dir,
-            output_dict=output_dict,
-            **model_kwargs,
-        )
-
-        pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
-
-        preprocess_train = image_transform_v2(
-            pp_cfg,
-            is_train=True,
-            aug_cfg=aug_cfg,
-        )
-        preprocess_val = image_transform_v2(
-            pp_cfg,
-            is_train=False,
-        )
+                    drop_path_rate=0.2,
+                    num_classes=512
+                    ).to(device)
+    
+    # 35.1M
+    elif model_name == "MobileCLIP-S2":
+        model.eval()
+        model.visual = None
+        model.visual = MambaVision(depths=[1, 3, 11, 4],
+                    num_heads=[2, 4, 8, 16],
+                    window_size=[8, 8, 14, 7],
+                    dim=80,
+                    in_dim=32,
+                    mlp_ratio=4,
+                    resolution=224,
+                    drop_path_rate=0.2,
+                    num_classes=512
+                    ).to(device)
+    
+    # 85.9M
+    elif model_name == "MobileCLIP-B":
+        model.eval()
+        model.visual = None
+        model.visual = MambaVision(depths=[3, 3, 10, 5],
+                    num_heads=[2, 4, 8, 16],
+                    window_size=[8, 8, 14, 7],
+                    dim=120,
+                    in_dim=64,
+                    mlp_ratio=4,
+                    resolution=224,
+                    drop_path_rate=0.2,
+                    num_classes=512
+                    ).to(device)
 
     return model, preprocess_train, preprocess_val
 

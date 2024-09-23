@@ -11,7 +11,7 @@ from functools import partial
 import numpy as np
 import torch
 from torch import optim
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 
 try:
     import wandb

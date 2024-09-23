@@ -1,6 +1,6 @@
 num_gpus=1
 num_nodes=1
-global_batch_size=$((2**11))
+global_batch_size=$((1))
 num_seen_samples=$((30*1000*global_batch_size))
 exp_name="mobileclipb_datacompdr12m_s30m_single_gpu_$(date +%Y-%m-%d_%H-%M-%S)"
 num_checkpoints=20  

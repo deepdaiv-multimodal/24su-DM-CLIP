@@ -6,11 +6,11 @@ model, _, preprocess = open_clip.create_model_and_transforms('convnext_base_w', 
 model.eval()
 
 # 11.55M
-mamba_encoder = MambaVision(depths=[1, 3, 12, 6],
-                    num_heads=[1, 2, 10, 8],
-                    window_size=[4, 4, 12, 8],
-                    dim=40,
-                    in_dim=32,
+mamba_encoder = MambaVision(depths=[3, 3, 10, 5],
+                    num_heads=[2, 4, 8, 16],
+                    window_size=[8, 8, 14, 7],
+                    dim=120,
+                    in_dim=64,
                     mlp_ratio=4,
                     resolution=224,
                     drop_path_rate=0.2

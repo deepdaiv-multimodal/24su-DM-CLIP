@@ -298,10 +298,10 @@ def pytorch_worker_seed(increment=0):
     return wds.utils.pytorch_worker_seed()
 
 
-_SHARD_SHUFFLE_SIZE = 1 # 2000
-_SHARD_SHUFFLE_INITIAL = 1 #500
-_SAMPLE_SHUFFLE_SIZE = 1 # 5000
-_SAMPLE_SHUFFLE_INITIAL = 1 # 1000
+_SHARD_SHUFFLE_SIZE = 2000
+_SHARD_SHUFFLE_INITIAL = 500
+_SAMPLE_SHUFFLE_SIZE = 5000
+_SAMPLE_SHUFFLE_INITIAL = 1000
 
 
 class detshuffle2(wds.PipelineStage):
@@ -524,7 +524,7 @@ def get_wds_dataset(args, preprocess_img, is_train, epoch=0, floor=False, tokeni
         shuffle=False,
         num_workers=args.workers,
         persistent_workers=args.workers > 0,
-        pin_memory=True
+        # pin_memory=True
     )
 
     # FIXME not clear which approach is better, with_epoch before vs after dataloader?
