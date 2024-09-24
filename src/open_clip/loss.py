@@ -285,6 +285,7 @@ class DRClipLoss(DistillClipLoss):
             dist_syn_text_features=None,
             output_dict=False,
     ):
+
         loss_gt = super().forward(
             image_features,
             text_features,

@@ -1,6 +1,7 @@
-num_gpus=1
-num_nodes=1
-global_batch_size=$((2**8))
+# batch_size = 8192
+global_batch_size=$((2**11))
+grad_accum=1
+# grad_accum=$((2**7/2**4))
 num_seen_samples=$((30*1000*global_batch_size))
 exp_name="mambaCLIP_datacompdr12m_s30m_single_gpu_$(date +%Y-%m-%d_%H-%M-%S)"
 num_checkpoints=20
@@ -15,22 +16,24 @@ num_checkpoints=20
 # MobileCLIP-S2 -> M4CLIP-S: 0.1 0.9
 # MobileCLIP-B -> M4CLIP-B: 0.25 0.75
 
-data="DataCompDR/{00000000..00000010}.tar"
+data="DataCompDR/{00000000..00000120}.tar"
+model="MobileCLIP-S2"
 
-
-model="MobileCLIP-S1"
+#     --lock-image \
+    # 
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \
     --local-loss \
-    --accum-freq 1 \
+    --accum-freq "$grad_accum" \
     --gather-with-grad \
     --train-data "$data" \
+    --report-to wandb \
     --warmup 1000 \
     --dataset-type webdataset \
     --train-num-samples $((num_seen_samples / num_checkpoints)) \
     --precision amp \
-    --workers 16 \
+    --workers 8 \
     --model "$model"  \
     --batch-size $global_batch_size \
     --epochs $num_checkpoints \
@@ -39,7 +42,6 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --seed 0 \
     --log-every-n-steps 1 \
     --beta2 0.95 \
-    --report-to wandb \
     --wd 0.2 \
     --dataset-resampled \
     --save-most-recent \
@@ -50,6 +52,6 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --dataset-reinforcement \
     --dataset-reinforcement-config datacompdr12m.json \
     --distill-logit-scale 100 \
-    --distill-loss-weights 0.0 1.0 \
+    --distill-loss-weights 0.1 0.9 \
     --distill-teacher-dimension 768 768 \
     --distill-average-after-softmax \

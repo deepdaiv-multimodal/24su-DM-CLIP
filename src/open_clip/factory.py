@@ -395,7 +395,7 @@ def create_loss(args):
 def create_model_and_transforms(
         model_name: str,
         pretrained: Optional[str] = None,
-        precision: str = 'fp32',
+        precision: str = 'fp16',
         device: Union[str, torch.device] = 'cpu',
         jit: bool = False,
         force_quick_gelu: bool = False,
@@ -411,8 +411,6 @@ def create_model_and_transforms(
         pretrained_hf: bool = True,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
-        mamba_d_model: int = 512,
-        mamba_n_layer: int = 12,
         **model_kwargs,
 ):
     force_preprocess_cfg = merge_preprocess_kwargs(
@@ -452,9 +450,10 @@ def create_model_and_transforms(
     if model_name == "MobileCLIP-S1":
         model.eval()
         model.visual = None
+        torch.cuda.empty_cache()
         model.visual = MambaVision(depths=[1, 3, 8, 4],
                     num_heads=[2, 4, 8, 16],
-                    window_size=[8, 8, 14, 7],
+                    window_size=[4, 4, 7, 4],
                     dim=64,
                     in_dim=32,
                     mlp_ratio=4,
@@ -467,21 +466,38 @@ def create_model_and_transforms(
     elif model_name == "MobileCLIP-S2":
         model.eval()
         model.visual = None
-        model.visual = MambaVision(depths=[1, 3, 11, 4],
-                    num_heads=[2, 4, 8, 16],
-                    window_size=[8, 8, 14, 7],
-                    dim=80,
-                    in_dim=32,
-                    mlp_ratio=4,
-                    resolution=224,
-                    drop_path_rate=0.2,
-                    num_classes=512
-                    ).to(device)
+        torch.cuda.empty_cache()
+        # model.visual = MambaVision(depths=[1, 3, 11, 4],
+        #             num_heads=[2, 4, 8, 16],
+        #             window_size=[8, 8, 14, 7],
+        #             dim=80,
+        #             in_dim=32,
+        #             mlp_ratio=4,
+        #             resolution=224,
+        #             drop_path_rate=0.2,
+        #             num_classes=512
+        #             ).to(device)
+        from transformers import AutoModel
+        model.visual = AutoModel.from_pretrained("nvidia/MambaVision-T-1K", trust_remote_code=True).model
+
+        # if hasattr(model.visual, 'head'):
+        #     del model.visual.head
+
+        model.visual.head = torch.nn.Linear(640, 512)
+
+        model= model.to(device)
+
+        for param in model.visual.parameters():
+            param.requires_grad = False
+
+        for param in model.visual.head.parameters():
+            param.requires_grad = True
     
     # 85.9M
     elif model_name == "MobileCLIP-B":
         model.eval()
         model.visual = None
+        torch.cuda.empty_cache()
         model.visual = MambaVision(depths=[3, 3, 10, 5],
                     num_heads=[2, 4, 8, 16],
                     window_size=[8, 8, 14, 7],

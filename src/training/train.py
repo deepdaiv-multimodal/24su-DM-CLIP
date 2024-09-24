@@ -76,7 +76,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
 
     if args.accum_freq > 1:
-        accum_images, accum_texts, accum_features = [], [], {}
+        accum_images, accum_texts, accum_syn_texts, accum_features = [], [], [], {}
+        logit_scale = None
 
     losses_m = {}
     batch_time_m = AverageMeter()
@@ -92,10 +93,14 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         images, texts = batch[:2]
         images = images.to(device=device, dtype=input_dtype, non_blocking=True)
         texts = texts.to(device=device, non_blocking=True)
+
+        # 데이터 증강을 위한 합성 텍스트를 사용
         if args.dataset_reinforcement and not args.dataset_reinforcement_mix_synthetic:
             syn_texts = batch[4].to(device=device, non_blocking=True)
+            original_texts = texts
             texts = torch.cat([texts, syn_texts[:, :texts.shape[-1]]], dim=0)
 
+        batch_size = images.shape[0]  # 배치 크기
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
@@ -108,15 +113,14 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                         dist_model_out = dist_model(images, texts)
                     model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
                 if args.dataset_reinforcement:
-                    batch_size = images.shape[0]
                     model_out.update({
                         'dist_image_features': batch[2].to(device=device, non_blocking=True),
                         'dist_text_features': batch[3].to(device=device, non_blocking=True),
                     })
                     if not args.dataset_reinforcement_mix_synthetic:
                         model_out.update({
-                            "text_features": model_out["text_features"][:batch_size],
-                            "syn_text_features": model_out["text_features"][batch_size:],
+                            "text_features": model_out["text_features"][:batch_size],  # 원본 텍스트만 사용
+                            "syn_text_features": model_out["text_features"][batch_size:],  # 합성 텍스트 사용
                             'dist_syn_text_features': batch[5].to(device=device, non_blocking=True)
                         })
                 losses = loss(**model_out, output_dict=True)
@@ -134,48 +138,85 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                     for f in ("logit_scale", "logit_bias"):
                         model_out.pop(f, None)
 
+                    if args.distill:
+                        with torch.no_grad():
+                            dist_model_out = dist_model(images, texts)
+                        model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
+                    if args.dataset_reinforcement:
+                        model_out.update({
+                            'dist_image_features': batch[2].to(device=device, non_blocking=True),
+                            'dist_text_features': batch[3].to(device=device, non_blocking=True),
+                        })
+                        if not args.dataset_reinforcement_mix_synthetic:
+                            model_out.update({
+                                "text_features": model_out["text_features"][:batch_size],  # 원본 텍스트만 사용
+                                "syn_text_features": model_out["text_features"][batch_size:],  # 합성 텍스트 사용
+                                'dist_syn_text_features': batch[5].to(device=device, non_blocking=True)
+                            })
+
                     for key, val in model_out.items():
-                        if key in accum_features:
-                            accum_features[key].append(val)
-                        else:
-                            accum_features[key] = [val]
+                        if key not in accum_features:
+                            accum_features[key] = []
+                        accum_features[key].append(val)
+                            
+            # Cache the images and texts for the backward pass.
+            accum_images.append(images.cpu())
+            accum_texts.append(original_texts.cpu())
+            accum_syn_texts.append(syn_texts.cpu())
+            for key, val in model_out.items():
+                if key not in accum_features:
+                    accum_features[key] = []
+                accum_features[key].append(val.cpu())
 
-                accum_images.append(images)
-                accum_texts.append(texts)
-
-            # If (i + 1) % accum_freq is not zero, move on to the next batch.
             if ((i + 1) % args.accum_freq) > 0:
-                # FIXME this makes data time logging unreliable when accumulating
                 continue
 
-            # Now, ready to take gradients for the last accum_freq batches.
-            # Re-do the forward pass for those batches, and use the cached features from the other batches as negatives.
-            # Call backwards each time, but only step optimizer at the end.
+            # Re-do the forward pass for the last accum_freq batches and use the cached features as negatives.
             optimizer.zero_grad()
-            for j in range(args.accum_freq):
-                images = accum_images[j]
-                texts = accum_texts[j]
-                with autocast():
-                    model_out = model(images, texts)
+            with autocast():
+                total_loss_accum = 0.0
+                for j in range(args.accum_freq):
+                    images = accum_images[j].to(device)
+                    texts = accum_texts[j].to(device)
+                    syn_texts = accum_syn_texts[j].to(device)
 
+                    texts = torch.cat([texts, syn_texts[:, :texts.shape[-1]]], dim=0)
+
+                    model_out = model(images, texts)
                     inputs_no_accum = {}
-                    inputs_no_accum["logit_scale"] = logit_scale = model_out.pop("logit_scale")
-                    if "logit_bias" in model_out:
-                        inputs_no_accum["logit_bias"] = model_out.pop("logit_bias")
+                    if logit_scale is None:
+                        logit_scale = model_out["logit_scale"]
+
+                    inputs_no_accum["logit_scale"] = logit_scale
+
+                    if args.distill:
+                        with torch.no_grad():
+                            dist_model_out = dist_model(images, texts)
+                        model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
+
+                    if args.dataset_reinforcement and not args.dataset_reinforcement_mix_synthetic:
+                        model_out.update({
+                            "text_features": model_out["text_features"][:batch_size],
+                            "syn_text_features": model_out["text_features"][batch_size:],
+                        })
 
                     inputs = {}
                     for key, val in accum_features.items():
-                        accumulated = accum_features[key]
-                        inputs[key] = torch.cat(accumulated[:j] + [model_out[key]] + accumulated[j + 1:])
+                        accumulated = [tensor.to(device) for tensor in accum_features[key]]  # GPU로 다시 이동
+                        if key == "dist_image_features" or key == "dist_text_features" or key == "dist_syn_text_features":
+                            inputs[key] = torch.cat(accumulated)
+                        else:
+                            inputs[key] = torch.cat(accumulated[:j] + [model_out[key]] + accumulated[j + 1:])
 
                     losses = loss(**inputs, **inputs_no_accum, output_dict=True)
                     del inputs
                     del inputs_no_accum
                     total_loss = sum(losses.values())
-                    losses["loss"] = total_loss
+                    total_loss_accum += total_loss
 
-                backward(total_loss, scaler)
-
+                losses["loss"] = total_loss_accum
+                scaler.scale(total_loss_accum / args.accum_freq).backward()
+                    
         if scaler is not None:
             if args.horovod:
                 optimizer.synchronize()
@@ -194,10 +235,6 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             if args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
             optimizer.step()
-
-        # reset gradient accum, if enabled
-        if args.accum_freq > 1:
-            accum_images, accum_texts, accum_features = [], [], {}
 
         # Note: we clamp to 4.6052 = ln(100), as in the original paper.
         with torch.no_grad():
@@ -244,7 +281,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 "scale": logit_scale_scalar,
                 "lr": optimizer.param_groups[0]["lr"]
             }            
-            log_data.update({name:val.val for name,val in losses_m.items()})
+            log_data.update({name: val.val for name, val in losses_m.items()})
 
             log_data = {"train/" + name: val for name, val in log_data.items()}
 
@@ -260,8 +297,12 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             # resetting batch / data time meters per log window
             batch_time_m.reset()
             data_time_m.reset()
-    # end for
 
+        if ((i + 1) % args.accum_freq) == 0:
+            # reset the accumulated features
+            accum_images, accum_texts, accum_syn_texts, accum_features = [], [], [], {}
+            logit_scale = None
+    # end for
 
 def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
     metrics = {}

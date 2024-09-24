@@ -131,8 +131,8 @@ def process_tar_files(start_idx, end_idx, dr6m_dir, data6m_dir, output_dir):
 
 if __name__ == "__main__":
     # Configuration
-    start_index = 1
-    end_index = 100
+    start_index = 201
+    end_index = 300
 
     # Set directories (updated paths based on the context you provided)
     dr6m_directory = "DataCompDR-6M"  # DataCompDR-6M tar files
