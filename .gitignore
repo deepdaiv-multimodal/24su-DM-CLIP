@@ -1,6 +1,6 @@
 wandb
 logs
 imagenet_validation/val
-DataCompDR-6M
-DataCompDR
-DataComp-6M
+DataCompDR-5M
+checkpoints
+MambaVision

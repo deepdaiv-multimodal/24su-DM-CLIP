@@ -1,5 +1,5 @@
-# M4-CLIP
-M4-CLIP: Mobile Multi Modal Mamba with CLIP
+# MobileMLiT
+MobileMLiT: Faster and Stronger MoblieCLIP with Mamba and LiT
 
 ## setup
 

@@ -322,11 +322,11 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
         num_samples = 0
         samples_per_val = dataloader.num_samples
 
-        # FIXME this does not scale past small eval datasets
-        # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_loss = 0.0
         cumulative_gen_loss = 0.0
         all_image_features, all_text_features = [], []
+        image_encoder_time = 0.0
+        text_encoder_time = 0.0
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -334,15 +334,24 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
                 texts = texts.to(device=device, non_blocking=True)
 
                 with autocast():
+                    # Start measuring image encoder time
+                    start_time = time.time()
                     model_out = model(images, texts)
+                    image_encoder_time += time.time() - start_time
+
                     image_features = model_out["image_features"]
+
+                    # Start measuring text encoder time
+                    start_time = time.time()
                     text_features = model_out["text_features"]
+                    text_encoder_time += time.time() - start_time
+
                     logit_scale = model_out["logit_scale"]
-                    # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
-                    # however, system RAM is easily exceeded and compute time becomes problematic
+
                     all_image_features.append(image_features.cpu())
                     all_text_features.append(text_features.cpu())
                     logit_scale = logit_scale.mean()
+
                     logits_per_image = logit_scale * image_features @ text_features.t()
                     logits_per_text = logits_per_image.t()
 
@@ -367,6 +376,14 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
                         logging.info(
                             f"Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
 
+            # Calculate FPS for image and text encoders
+            image_encoder_fps = num_samples / image_encoder_time if image_encoder_time > 0 else 0
+            text_encoder_fps = num_samples / text_encoder_time if text_encoder_time > 0 else 0
+
+            # Log FPS
+            logging.info(f"Image Encoder FPS: {image_encoder_fps:.2f}")
+            logging.info(f"Text Encoder FPS: {text_encoder_fps:.2f}")
+
             val_metrics = get_clip_metrics(
                 image_features=torch.cat(all_image_features),
                 text_features=torch.cat(all_text_features),
@@ -379,6 +396,9 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
             if gen_loss is not None:
                 gen_loss = cumulative_gen_loss / num_samples
                 metrics.update({"val_generative_loss": gen_loss.item()})
+
+            # Add FPS to metrics
+            metrics.update({"image_encoder_fps": image_encoder_fps, "text_encoder_fps": text_encoder_fps})
 
     if not metrics:
         return metrics
