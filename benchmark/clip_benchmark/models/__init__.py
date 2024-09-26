@@ -3,12 +3,15 @@ import torch
 from .open_clip import load_open_clip
 from .japanese_clip import load_japanese_clip
 from .mobile_clip import load_mobile_clip
+from .mobileMLiT import load_mobile_MLiT
 
 # loading function must return (model, transform, tokenizer)
 TYPE2FUNC = {
     "mobile_clip": load_mobile_clip,
+    "mobileMLiT" : load_mobile_MLiT,
     "open_clip": load_open_clip,
-    "ja_clip": load_japanese_clip
+    "ja_clip": load_japanese_clip,
+    
 }
 MODEL_TYPES = list(TYPE2FUNC.keys())
 
