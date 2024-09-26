@@ -11,7 +11,7 @@ from functools import partial
 import numpy as np
 import torch
 from torch import optim
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 
 try:
     import wandb
@@ -236,8 +236,6 @@ def main(args):
         image_resize_mode=args.image_resize_mode,  # only effective for inference
         aug_cfg=args.aug_cfg,
         pretrained_image=args.pretrained_image,
-        mamba_d_model=args.mamba_d_model,  #! 추가
-        mamba_n_layer=args.mamba_n_layer,  #! 추가
         output_dict=True,
         **model_kwargs,
     )
@@ -354,7 +352,7 @@ def main(args):
             model.load_state_dict(checkpoint)
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
-            
+    # initialize datasets
     tokenizer = get_tokenizer(args.model)
     data = get_data(
         args,
@@ -362,8 +360,6 @@ def main(args):
         epoch=start_epoch,
         tokenizer=tokenizer,
     )
-    assert len(data), 'At least one train or eval dataset must be specified.'
-
 
     # create scheduler if train
     scheduler = None

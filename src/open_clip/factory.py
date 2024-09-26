@@ -6,9 +6,8 @@ from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
-from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
-from mamba_ssm.models.config_mamba import MambaConfig
-
+from mambavision.models.mamba_vision import MambaVision
+from transformers import AutoModel
 import torch
 
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
@@ -22,7 +21,6 @@ from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrain
     list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform_v2, AugmentationCfg, PreprocessCfg, merge_preprocess_dict, merge_preprocess_kwargs
 from .tokenizer import HFTokenizer, SimpleTokenizer, DEFAULT_CONTEXT_LENGTH
-from models.mamba2 import CLIPMamba2TextEncoder
 import open_clip
 
 HF_HUB_PREFIX = 'hf-hub:'
@@ -392,6 +390,41 @@ def create_loss(args):
         use_horovod=args.horovod,
     )
 
+def change_image_encoder(model, image_encoder_id, device):
+    model.eval()
+    model.visual = None
+    torch.cuda.empty_cache()
+
+    # 31.8M (mobileclip_s1)
+    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-T-1K", trust_remote_code=True).model
+
+    # 35.1M
+    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-T2-1K", trust_remote_code=True).model
+
+    # 50.1M (mobileclip_s2)
+    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-S-1K", trust_remote_code=True).model
+
+    # 97.7M
+    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-B-1K", trust_remote_code=True).model
+
+    model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+
+    if image_encoder_id == "nvidia/MambaVision-T-1K":
+        model.visual.head = torch.nn.Linear(640, 512)
+    elif image_encoder_id == "nvidia/MambaVision-B-1K":
+        model.visual.head = torch.nn.Linear(1024, 512)
+
+    model = model.to(device)
+
+    for param in model.visual.parameters():
+        param.requires_grad = False
+
+    for param in model.visual.head.parameters():
+        param.requires_grad = True
+
+    return model
+
+
 
 def create_model_and_transforms(
         model_name: str,
@@ -412,76 +445,97 @@ def create_model_and_transforms(
         pretrained_hf: bool = True,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
-        mamba_d_model: int = 512,
-        mamba_n_layer: int = 12,
         **model_kwargs,
 ):
     force_preprocess_cfg = merge_preprocess_kwargs(
         {}, mean=image_mean, std=image_std, interpolation=image_interpolation, resize_mode=image_resize_mode)
 
-    device = torch.device("cuda")
-    if model_name == "MambaCLIP":
-        base_model, _, preprocess_val = open_clip.create_model_and_transforms('ViT-B-32',device=device)
-        base_model.eval()
+    model = create_model(
+        model_name,
+        pretrained,
+        precision=precision,
+        device=device,
+        jit=jit,
+        force_quick_gelu=force_quick_gelu,
+        force_custom_text=force_custom_text,
+        force_patch_dropout=force_patch_dropout,
+        force_image_size=force_image_size,
+        force_preprocess_cfg=force_preprocess_cfg,
+        pretrained_image=pretrained_image,
+        pretrained_hf=pretrained_hf,
+        cache_dir=cache_dir,
+        output_dict=output_dict,
+        **model_kwargs,
+    )
 
-        # Mamba2 텍스트 인코더 파라미터 설정
-        vocab_size = base_model.token_embedding.weight.shape[0]
-        # max_seq_len = base_model.context_length
-        output_dim = base_model.text_projection.shape[1]
+    pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
 
+    preprocess_train = image_transform_v2(
+        pp_cfg,
+        is_train=True,
+        aug_cfg=aug_cfg,
+    )
+    preprocess_val = image_transform_v2(
+        pp_cfg,
+        is_train=False,
+    )
 
-
-        config = MambaConfig(
-            d_model=mamba_d_model,
-            n_layer=mamba_n_layer,
-            vocab_size=vocab_size,
-            ssm_cfg=dict(layer="Mamba2"),
-            rms_norm=True,
-            residual_in_fp32=True,
-            fused_add_norm=True,
-            pad_vocab_size_multiple=16,
-        )
-
-        device = "cuda"
-        dtype = torch.float16
-
-        mamba_encoder = MambaLMHeadModel(config, device=device, dtype=dtype)
-        base_model.text = mamba_encoder
-
-        model = base_model
+    # 20.5M
+    if model_name == "MobileCLIP-S1":
+        model.eval()
+        model.visual = None
+        torch.cuda.empty_cache()
+        # model.visual = MambaVision(depths=[1, 3, 8, 4],
+        #             num_heads=[2, 4, 8, 16],
+        #             window_size=[4, 4, 7, 4],
+        #             dim=64,
+        #             in_dim=32,
+        #             mlp_ratio=4,
+        #             resolution=224,
+        #             drop_path_rate=0.2,
+        #             num_classes=512
+        #             ).to(device)
+        model = change_image_encoder(model, "nvidia/MambaVision-T-1K", device)
+        # if pretrained:
+        #     model.load_state_dict(torch.load("checkpoints/mobileclip_s1.pt")["state_dict"])
+    
+    # 35.1M
+    elif model_name == "MobileCLIP-S2":
+        model.eval()
         
-        preprocess_train = preprocess_val
-    else:
-
-        model = create_model(
-            model_name,
-            pretrained,
-            precision=precision,
-            device=device,
-            jit=jit,
-            force_quick_gelu=force_quick_gelu,
-            force_custom_text=force_custom_text,
-            force_patch_dropout=force_patch_dropout,
-            force_image_size=force_image_size,
-            force_preprocess_cfg=force_preprocess_cfg,
-            pretrained_image=pretrained_image,
-            pretrained_hf=pretrained_hf,
-            cache_dir=cache_dir,
-            output_dict=output_dict,
-            **model_kwargs,
-        )
-
-        pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
-
-        preprocess_train = image_transform_v2(
-            pp_cfg,
-            is_train=True,
-            aug_cfg=aug_cfg,
-        )
-        preprocess_val = image_transform_v2(
-            pp_cfg,
-            is_train=False,
-        )
+        # print(model.visual)
+        model.visual = None
+        torch.cuda.empty_cache()
+        # model.visual = MambaVision(depths=[1, 3, 11, 4],
+        #             num_heads=[2, 4, 8, 16],
+        #             window_size=[8, 8, 14, 7],
+        #             dim=80,
+        #             in_dim=32,
+        #             mlp_ratio=4,
+        #             resolution=224,
+        #             drop_path_rate=0.2,
+        #             num_classes=512
+        #             ).to(device)
+        model = change_image_encoder(model, "nvidia/MambaVision-B-1K", device)
+        # if pretrained:
+        #     model.load_state_dict(torch.load("checkpoints/mobilemlit_s2.pt")["state_dict"])
+        #     print(model.visual)
+    
+    # # 85.9M
+    # elif model_name == "MobileCLIP-B":
+    #     model.eval()
+    #     model.visual = None
+    #     torch.cuda.empty_cache()
+    #     model.visual = MambaVision(depths=[3, 3, 10, 5],
+    #                 num_heads=[2, 4, 8, 16],
+    #                 window_size=[8, 8, 14, 7],
+    #                 dim=120,
+    #                 in_dim=64,
+    #                 mlp_ratio=4,
+    #                 resolution=224,
+    #                 drop_path_rate=0.2,
+    #                 num_classes=512
+    #                 ).to(device)
 
     return model, preprocess_train, preprocess_val
 

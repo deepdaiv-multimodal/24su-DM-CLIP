@@ -298,10 +298,10 @@ def pytorch_worker_seed(increment=0):
     return wds.utils.pytorch_worker_seed()
 
 
-_SHARD_SHUFFLE_SIZE = 1 # 2000
-_SHARD_SHUFFLE_INITIAL = 1 #500
-_SAMPLE_SHUFFLE_SIZE = 1 # 5000
-_SAMPLE_SHUFFLE_INITIAL = 1 # 1000
+_SHARD_SHUFFLE_SIZE = 2000
+_SHARD_SHUFFLE_INITIAL = 500
+_SAMPLE_SHUFFLE_SIZE = 5000
+_SAMPLE_SHUFFLE_INITIAL = 1000
 
 
 class detshuffle2(wds.PipelineStage):
@@ -728,13 +728,13 @@ def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
     preprocess_train, preprocess_val = preprocess_fns
     data = { }
     
-    if args.train_data or args.dataset_type == "synthetic" or args.dataset_type == "datacomp":
+    if args.train_data: #  or args.dataset_type == "synthetic" or args.dataset_type == "datacomp":
         data["train"] = get_dataset_fn(args.train_data, args.dataset_type)(
-            args, preprocess_fns, is_train=True, epoch=epoch, tokenizer=tokenizer)
+            args, preprocess_train, is_train=True, epoch=epoch, tokenizer=tokenizer)
 
     if args.val_data:
         data["val"] = get_dataset_fn(args.val_data, args.dataset_type)(
-            args, preprocess_fns, is_train=False, tokenizer=tokenizer)
+            args, preprocess_val, is_train=False, tokenizer=tokenizer)
 
     if args.imagenet_val is not None:
         data["imagenet-val"] = get_imagenet(args, preprocess_fns, "val")

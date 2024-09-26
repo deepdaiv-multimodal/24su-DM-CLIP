@@ -1,5 +1,5 @@
-# M4-CLIP
-M4-CLIP: Mobile Multi Modal Mamba with CLIP
+# MobileMLiT
+MobileMLiT: Faster and Stronger MoblieCLIP with Mamba and LiT
 
 ## setup
 
@@ -7,7 +7,13 @@ M4-CLIP: Mobile Multi Modal Mamba with CLIP
 conda create -n clipenv python=3.10
 conda activate clipenv
 pip install -r requirements.txt
+
+git clone https://github.com/NVlabs/MambaVision.git
+cd MambaVision
+pip install -e .
+cd ..
 ```
+
 
 ```bash
 bash download_imagenet.sh
