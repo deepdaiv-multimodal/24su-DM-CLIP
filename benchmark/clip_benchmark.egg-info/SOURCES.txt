@@ -53,6 +53,10 @@ clip_benchmark/metrics/zeroshot_classification.py
 clip_benchmark/metrics/zeroshot_retrieval.py
 clip_benchmark/models/__init__.py
 clip_benchmark/models/japanese_clip.py
+clip_benchmark/models/mobileMLiT.py
 clip_benchmark/models/mobile_clip.py
 clip_benchmark/models/nllb_clip.py
 clip_benchmark/models/open_clip.py
+output/benchmark_mobileclip_flickr30k_laion400m_e32_mobileclip_s2_en_zeroshot_retrieval.json
+output/benchmark_mobileclip_flickr8k_laion400m_e32_mobileclip_s2_en_zeroshot_retrieval.json
+output/benchmark_mobileclip_imagenet1k_laion400m_e32_mobileclip_s2_en_zeroshot_classification.json

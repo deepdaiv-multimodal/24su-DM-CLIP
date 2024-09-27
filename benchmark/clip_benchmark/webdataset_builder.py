@@ -129,7 +129,7 @@ def convert_dataset(dataset, split, output_folder, *, transform=None,
     # Multiprocessed dataloader, should work with Dataset or list
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=512,
         num_workers=8,
         collate_fn=lambda batch: batch[0] # No collate, only for multiprocessing
     )
@@ -217,7 +217,7 @@ def convert_retrieval_dataset(dataset, split, output_folder, *, transform=None, 
     # Multiprocessed dataloader, should work with Dataset or list
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=512,
         num_workers=8,
         collate_fn=lambda batch: batch[0] # No collate, only for multiprocessing
     )
