@@ -6,7 +6,7 @@ LOCAL_PATH="DataCompDR-5M"
 REPO_TYPE="dataset"
 
 # 0부터 500까지 파일 업로드
-for i in $(seq -f "%08g" 201 300)
+for i in $(seq -f "%08g" 401 500)
 do
     FILE_PATH="${LOCAL_PATH}/${i}.tar"
     echo "Uploading $FILE_PATH ..."

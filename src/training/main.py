@@ -233,10 +233,11 @@ def main(args):
         image_mean=args.image_mean,
         image_std=args.image_std,
         image_interpolation=args.image_interpolation,
-        image_resize_mode=args.image_resize_mode,  # only effective for inference
+        image_resize_mode=args.image_resize_mode,
         aug_cfg=args.aug_cfg,
         pretrained_image=args.pretrained_image,
         output_dict=True,
+        image_encoder_id=args.image_encoder_id,
         **model_kwargs,
     )
     if args.distill:

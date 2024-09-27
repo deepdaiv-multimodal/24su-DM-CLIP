@@ -515,3 +515,113 @@ class SigLipLoss(nn.Module):
                     text_features_to_right = text_features_from_left
 
         return {"contrastive_loss": loss} if output_dict else loss
+    
+class DistillSigLipLoss(SigLipLoss):
+    def __init__(
+        self,
+        *args,
+        teacher_dimension=[-1],
+        distill_loss_weights=[1.0, 1.0],
+        average_after_softmax=False,
+        dist_logit_scale=None,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.teacher_dimension = teacher_dimension
+        self.distill_loss_weights = distill_loss_weights
+        self.average_after_softmax = average_after_softmax
+        self.dist_logit_scale = dist_logit_scale
+
+    def get_logits_dist(self, image_features, text_features, logit_scale, logit_bias=None):
+        dims = self.teacher_dimension
+        logits = dot_ensemble_features(image_features, text_features.T, logit_scale, dims)
+
+        if logit_bias is not None:
+            logits += logit_bias
+
+        return logits
+
+
+    def dist_loss(self, teacher_logits, student_logits):
+        if self.average_after_softmax:
+            return -(teacher_logits * student_logits.log_softmax(dim=1)).sum(dim=1).mean(dim=0)
+        else:
+            return -(teacher_logits.softmax(dim=1) * student_logits.log_softmax(dim=1)).sum(dim=1).mean(dim=0)
+
+    def forward(
+            self,
+            image_features,
+            text_features,
+            logit_scale,
+            logit_bias,
+            dist_image_features,
+            dist_text_features,
+            dist_logit_scale=None,
+            output_dict=False,
+    ):
+        if self.dist_logit_scale is not None:
+            dist_logit_scale = self.dist_logit_scale
+
+        student_logits = self.get_logits(image_features, text_features, logit_scale, logit_bias)
+
+        if self.average_after_softmax:
+            dist_logits = self.get_logits_dist(dist_image_features, dist_text_features, dist_logit_scale, logit_bias)
+        else:
+            dist_logits = self.get_logits_dist(dist_image_features, dist_text_features, dist_logit_scale, logit_bias)
+
+        contrastive_loss = super().forward(
+            image_features, text_features, logit_scale, logit_bias
+        ) * self.distill_loss_weights[0]
+
+        distill_loss = self.dist_loss(dist_logits, student_logits) * self.distill_loss_weights[1]
+
+        if output_dict:
+            return {"contrastive_loss": contrastive_loss, "distill_loss": distill_loss}
+
+        return contrastive_loss, distill_loss
+
+class DRSigLipLoss(DistillSigLipLoss):
+    def forward(
+        self,
+        image_features,
+        text_features,
+        logit_scale,
+        dist_image_features,
+        dist_text_features,
+        logit_bias=None,
+        syn_text_features=None,
+        dist_syn_text_features=None,
+        dist_logit_scale=None,
+        output_dict=False,
+    ):
+        loss_gt = super().forward(
+            image_features=image_features,
+            text_features=text_features,
+            logit_scale=logit_scale,
+            logit_bias=logit_bias,
+            dist_image_features=dist_image_features,
+            dist_text_features=dist_text_features,
+            dist_logit_scale=dist_logit_scale,
+            output_dict=output_dict,
+        )
+
+        if syn_text_features is None:
+            return loss_gt
+
+        loss_syn = super().forward(
+            image_features=image_features,
+            text_features=syn_text_features,
+            logit_scale=logit_scale,
+            logit_bias=logit_bias,
+            dist_image_features=dist_image_features,
+            dist_text_features=dist_syn_text_features,
+            dist_logit_scale=dist_logit_scale,
+            output_dict=output_dict,
+        )
+
+        if output_dict:
+            contrastive_loss = loss_gt["contrastive_loss"] + loss_syn["contrastive_loss"]
+            distill_loss = loss_gt["distill_loss"] + loss_syn["distill_loss"]
+            return {"contrastive_loss": contrastive_loss, "distill_loss": distill_loss}
+
+        return loss_gt[0] + loss_syn[0], loss_gt[1] + loss_syn[1]

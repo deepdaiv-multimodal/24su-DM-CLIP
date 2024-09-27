@@ -510,6 +510,12 @@ def parse_args(args):
         help="Mixing ration for synthetic vs ground-truth captions."
         "0.0: all ground-truth and 1.0 means all synthetic."
     )
+    parser.add_argument(
+        "--image-encoder-id",
+        type=str,
+        default='',
+        help="Custom image encoder id for the model."
+    )
 
     args = parser.parse_args(args)
 
