@@ -15,7 +15,7 @@ from .convert import convert_state_dict
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
 from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, DRClipLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, DRClipLoss, DRSigLipLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained,\
     list_pretrained_tags_by_model, download_pretrained_from_hf
@@ -395,17 +395,8 @@ def change_image_encoder(model, image_encoder_id, device):
     model.visual = None
     torch.cuda.empty_cache()
 
-    # 31.8M (mobileclip_s1)
-    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-T-1K", trust_remote_code=True).model
-
-    # 35.1M
-    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-T2-1K", trust_remote_code=True).model
-
-    # 50.1M (mobileclip_s2)
-    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-S-1K", trust_remote_code=True).model
-
-    # 97.7M
-    # model.visual = AutoModel.from_pretrained("nvidia/MambaVision-B-1K", trust_remote_code=True).model
+    print("Changing image encoder to", image_encoder_id)
+    print("Lock image encoder weights and train only text encoder")
 
     model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
 
@@ -413,6 +404,12 @@ def change_image_encoder(model, image_encoder_id, device):
         model.visual.head = torch.nn.Linear(640, 512)
     elif image_encoder_id == "nvidia/MambaVision-B-1K":
         model.visual.head = torch.nn.Linear(1024, 512)
+    elif image_encoder_id == "nvidia/MambaVision-S-1K":
+        model.visual.head = torch.nn.Linear(768, 512)
+    elif image_encoder_id == "nvidia/MambaVision-L-1K":
+        model.visual.head = torch.nn.Linear(1568, 512)
+    elif image_encoder_id == "nvidia/MambaVision-L2-1K":
+        model.visual.head = torch.nn.Linear(1640, 512)
 
     model = model.to(device)
 
@@ -445,6 +442,7 @@ def create_model_and_transforms(
         pretrained_hf: bool = True,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
+        image_encoder_id: Optional[str] = None,
         **model_kwargs,
 ):
     force_preprocess_cfg = merge_preprocess_kwargs(
@@ -480,62 +478,8 @@ def create_model_and_transforms(
         is_train=False,
     )
 
-    # 20.5M
-    if model_name == "MobileCLIP-S1":
-        model.eval()
-        model.visual = None
-        torch.cuda.empty_cache()
-        # model.visual = MambaVision(depths=[1, 3, 8, 4],
-        #             num_heads=[2, 4, 8, 16],
-        #             window_size=[4, 4, 7, 4],
-        #             dim=64,
-        #             in_dim=32,
-        #             mlp_ratio=4,
-        #             resolution=224,
-        #             drop_path_rate=0.2,
-        #             num_classes=512
-        #             ).to(device)
-        model = change_image_encoder(model, "nvidia/MambaVision-T-1K", device)
-        # if pretrained:
-        #     model.load_state_dict(torch.load("checkpoints/mobileclip_s1.pt")["state_dict"])
-    
-    # 35.1M
-    elif model_name == "MobileCLIP-S2":
-        model.eval()
-        
-        # print(model.visual)
-        model.visual = None
-        torch.cuda.empty_cache()
-        # model.visual = MambaVision(depths=[1, 3, 11, 4],
-        #             num_heads=[2, 4, 8, 16],
-        #             window_size=[8, 8, 14, 7],
-        #             dim=80,
-        #             in_dim=32,
-        #             mlp_ratio=4,
-        #             resolution=224,
-        #             drop_path_rate=0.2,
-        #             num_classes=512
-        #             ).to(device)
-        model = change_image_encoder(model, "nvidia/MambaVision-B-1K", device)
-        # if pretrained:
-        #     model.load_state_dict(torch.load("checkpoints/mobilemlit_s2.pt")["state_dict"])
-        #     print(model.visual)
-    
-    # # 85.9M
-    # elif model_name == "MobileCLIP-B":
-    #     model.eval()
-    #     model.visual = None
-    #     torch.cuda.empty_cache()
-    #     model.visual = MambaVision(depths=[3, 3, 10, 5],
-    #                 num_heads=[2, 4, 8, 16],
-    #                 window_size=[8, 8, 14, 7],
-    #                 dim=120,
-    #                 in_dim=64,
-    #                 mlp_ratio=4,
-    #                 resolution=224,
-    #                 drop_path_rate=0.2,
-    #                 num_classes=512
-    #                 ).to(device)
+    if image_encoder_id:
+        model = change_image_encoder(model, image_encoder_id, device)
 
     return model, preprocess_train, preprocess_val
 

@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import time
+import gc
 
 import numpy as np
 import torch
@@ -303,6 +304,182 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             accum_images, accum_texts, accum_syn_texts, accum_features = [], [], [], {}
             logit_scale = None
     # end for
+
+
+
+# def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
+#     device = torch.device(args.device)
+#     autocast = get_autocast(args.precision)
+#     input_dtype = get_input_dtype(args.precision)
+
+#     model.train()
+#     if args.distill:
+#         dist_model.eval()
+
+#     data['train'].set_epoch(epoch)  # set epoch in process safe manner via sampler or shared_epoch
+#     dataloader = data['train'].dataloader
+#     num_batches_per_epoch = dataloader.num_batches // args.accum_freq
+#     sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
+
+#     losses_m = {}
+#     batch_time_m = AverageMeter()
+#     data_time_m = AverageMeter()
+#     end = time.time()
+
+#     for i, batch in enumerate(dataloader):
+#         i_accum = i // args.accum_freq
+#         step = num_batches_per_epoch * epoch + i_accum
+
+#         if not args.skip_scheduler:
+#             scheduler(step)
+
+#         images, texts = batch[:2]
+#         # texts = texts.to(device=device, non_blocking=True)
+#         images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+
+#         # 데이터 증강을 위한 합성 텍스트를 사용
+#         if args.dataset_reinforcement and not args.dataset_reinforcement_mix_synthetic:
+#             syn_texts = batch[4].to(device=device, non_blocking=True)
+#             # texts = torch.cat([texts, syn_texts[:, :texts.shape[-1]]], dim=0)
+
+#         # 이미지 행렬을 16등분
+#         # all_images = torch.split(images, 1, dim=0)
+#         # all_dist_images = torch.split(images, 1, dim=0)
+
+#         all_textes = torch.split(texts, 2, dim=0)
+#         all_dist_texts = torch.split(batch[3], 2, dim=0)
+#         all_syn_texts = torch.split(syn_texts, 2, dim=0)
+        
+#         data_time_m.update(time.time() - end)
+#         logit_scale = None
+
+#         print("ddwq")
+
+#         for i, text in enumerate(all_textes):
+#             print(f"Batch {i + 1} / {len(all_textes)}")
+#             mini_text = text.to(device=device, dtype=input_dtype, non_blocking=True)
+#             dist_texts = all_dist_texts[i].to(device=device, dtype=input_dtype, non_blocking=True)
+
+#             texts = torch.cat([mini_text, dist_texts[:, :mini_text.shape[-1]]], dim=0)
+
+#             batch_size = mini_text.shape[0]  # 각각의 배치 크기
+#             total_loss = 0.0
+
+#             with autocast():
+#                 model_out = model(images, mini_text)
+#                 if logit_scale is None:
+#                     logit_scale = model_out["logit_scale"]
+
+#                 if args.distill:
+#                     with torch.no_grad():
+#                         dist_model_out = dist_model(images, texts)
+#                     model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
+
+#                 if args.dataset_reinforcement:
+#                     model_out.update({
+#                         'dist_image_features': batch[2].to(device=device, non_blocking=True),
+#                         'dist_text_features': dist_texts
+#                     })
+#                     if not args.dataset_reinforcement_mix_synthetic:
+#                         model_out.update({
+#                             "text_features": model_out["text_features"][:batch_size],
+#                             "syn_text_features": model_out["text_features"][batch_size:],
+#                             'dist_syn_text_features': all_syn_texts[i].to(device=device, dtype=input_dtype, non_blocking=True)
+#                         })
+
+#                 losses = loss(**model_out, output_dict=True)
+#                 total_loss += sum(losses.values()) / 4096
+#                 losses["loss"] = total_loss * 4096
+
+#             backward(total_loss, scaler)
+#             del total_loss, mini_text, dist_texts, texts
+#             torch.cuda.empty_cache()
+#             gc.collect()
+
+#             if scaler is not None:
+#                 if args.horovod:
+#                     optimizer.synchronize()
+#                     scaler.unscale_(optimizer)
+#                     if args.grad_clip_norm is not None:
+#                         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
+#                     with optimizer.skip_synchronize():
+#                         scaler.step(optimizer)
+#                 else:
+#                     if args.grad_clip_norm is not None:
+#                         scaler.unscale_(optimizer)
+#                         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
+#                     scaler.step(optimizer)
+#                 scaler.update()
+#             else:
+#                 if args.grad_clip_norm is not None:
+#                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
+#                 optimizer.step()
+
+#             # Note: we clamp to 4.6052 = ln(100), as in the original paper.
+#             with torch.no_grad():
+#                 unwrap_model(model).logit_scale.clamp_(0, math.log(100))
+
+#             optimizer.zero_grad()
+                
+#         batch_time_m.update(time.time() - end)
+#         end = time.time()
+#         batch_count = i_accum + 1
+#         if is_master(args) and (i_accum % args.log_every_n_steps == 0 or batch_count == num_batches_per_epoch):
+#             batch_size = len(images)
+#             num_samples = batch_count * batch_size * args.accum_freq * args.world_size
+#             samples_per_epoch = dataloader.num_samples
+#             percent_complete = 100.0 * batch_count / num_batches_per_epoch
+
+#             # NOTE loss is coarsely sampled, just master node and per log update
+#             for key, val in losses.items():
+#                 if key not in losses_m:
+#                     losses_m[key] = AverageMeter()
+#                 losses_m[key].update(val.item(), batch_size)
+
+#             logit_scale_scalar = logit_scale.item()
+#             loss_log = " ".join(
+#                 [
+#                     f"{loss_name.capitalize()}: {loss_m.val:#.5g} ({loss_m.avg:#.5g})" 
+#                     for loss_name, loss_m in losses_m.items()
+#                 ]
+#             )
+#             samples_per_second = args.accum_freq * args.batch_size * args.world_size / batch_time_m.val
+#             samples_per_second_per_gpu = args.accum_freq * args.batch_size / batch_time_m.val
+#             logging.info(
+#                 f"Train Epoch: {epoch} [{num_samples:>{sample_digits}}/{samples_per_epoch} ({percent_complete:.0f}%)] "
+#                 f"Data (t): {data_time_m.avg:.3f} "
+#                 f"Batch (t): {batch_time_m.avg:.3f}, {samples_per_second:#g}/s, {samples_per_second_per_gpu:#g}/s/gpu "
+#                 f"LR: {optimizer.param_groups[0]['lr']:5f} "
+#                 f"Logit Scale: {logit_scale_scalar:.3f} " + loss_log
+#             )
+
+#             # Save train loss / etc. Using non avg meter values as loggers have their own smoothing
+#             log_data = {
+#                 "data_time": data_time_m.val,
+#                 "batch_time": batch_time_m.val,
+#                 "samples_per_second": samples_per_second,
+#                 "samples_per_second_per_gpu": samples_per_second_per_gpu,
+#                 "scale": logit_scale_scalar,
+#                 "lr": optimizer.param_groups[0]["lr"]
+#             }            
+#             log_data.update({name: val.val for name, val in losses_m.items()})
+
+#             log_data = {"train/" + name: val for name, val in log_data.items()}
+
+#             if tb_writer is not None:
+#                 for name, val in log_data.items():
+#                     tb_writer.add_scalar(name, val, step)
+            
+#             if args.wandb:
+#                 assert wandb is not None, 'Please install wandb.'
+#                 log_data['step'] = step  # for backwards compatibility
+#                 wandb.log(log_data, step=step)
+            
+#             # resetting batch / data time meters per log window
+#             batch_time_m.reset()
+#             data_time_m.reset()
+#             logit_scale = None
+#     # end for
 
 def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
     metrics = {}
