@@ -1,0 +1,1 @@
+{"dataset": "wds/flickr30k", "model": "mobilemlit_s2", "task": "zeroshot_retrieval", "metrics": {"image_retrieval_recall@5": 0.7164000272750854, "text_retrieval_recall@5": 0.8500000238418579}, "language": "en", "fps_info": {"image_encoder_latency": 13.845985288619994, "text_encoder_latency": 5.888942084312439}}

@@ -1,0 +1,1 @@
+{"dataset": "wds/imagenet1k", "model": "mobilemlit_s2", "task": "zeroshot_classification", "metrics": {"acc1": 0.66368, "acc5": 0.87106, "mean_per_class_recall": 0.6642}, "language": "en", "fps_info": {"image_encoder_latency": 13.827379179000854, "text_encoder_latency": 5.862666234970093}}

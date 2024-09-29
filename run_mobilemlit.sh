@@ -14,11 +14,13 @@ if [ "$model" = "MobileCLIP-S1" ]; then
     exp_name="MobileMLiT_S1_$(date +%Y-%m-%d_%H-%M-%S)"
     pretrained="checkpoints/mobileclip_s1.pt"
     image_encoder_id="nvidia/MambaVision-B-1K"
+    image_encoder_id="fastvit_sa36.apple_dist_in1k"
 elif [ "$model" = "MobileCLIP-S2" ]; then
     wandb_project_name="MobileMLiT_S2"
     exp_name="MobileMLiT_S2_$(date +%Y-%m-%d_%H-%M-%S)"
     pretrained="checkpoints/mobileclip_s2.pt"
     image_encoder_id="nvidia/MambaVision-L-1K"
+    image_encoder_id="fastvit_ma36.apple_dist_in1k"
 else
     echo "Invalid model name"
     exit 1
@@ -28,6 +30,7 @@ fi
 #     --report-to wandb \
 #     --local-loss \
 #     --gather-with-grad \
+#     --image-encoder-id "$image_encoder_id" \ apple/mobileclip_s2_timm
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \

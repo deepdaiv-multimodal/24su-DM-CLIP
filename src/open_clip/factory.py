@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from mambavision.models.mamba_vision import MambaVision
 from transformers import AutoModel
 import torch
+import timm
 
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .convert import convert_state_dict
@@ -398,7 +399,10 @@ def change_image_encoder(model, image_encoder_id, device):
     print("Changing image encoder to", image_encoder_id)
     print("Lock image encoder weights and train only text encoder")
 
-    model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+    if "nvidia" in image_encoder_id:
+        model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+    elif "fastvit" in image_encoder_id:
+        model.visual = timm.create_model(image_encoder_id, pretrained=True).to(dtype=torch.bfloat16)
 
     if image_encoder_id == "nvidia/MambaVision-T-1K":
         model.visual.head = torch.nn.Linear(640, 512)
@@ -410,8 +414,12 @@ def change_image_encoder(model, image_encoder_id, device):
         model.visual.head = torch.nn.Linear(1568, 512)
     elif image_encoder_id == "nvidia/MambaVision-L2-1K":
         model.visual.head = torch.nn.Linear(1640, 512)
+    elif image_encoder_id == "fastvit_ma36.apple_dist_in1k":
+        model.visual.head.fc = torch.nn.Linear(1216, 512)
+    elif image_encoder_id == "fastvit_sa36.apple_dist_in1k":
+        model.visual.head.fc = torch.nn.Linear(1024, 512)
 
-    model = model.to(device)
+    model = model.to(device=device, dtype=torch.bfloat16)
 
     for param in model.visual.parameters():
         param.requires_grad = False
@@ -420,7 +428,6 @@ def change_image_encoder(model, image_encoder_id, device):
         param.requires_grad = True
 
     return model
-
 
 
 def create_model_and_transforms(
