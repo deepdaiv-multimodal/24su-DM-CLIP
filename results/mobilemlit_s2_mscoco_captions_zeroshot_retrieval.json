@@ -1,1 +1,0 @@
-{"dataset": "wds/mscoco_captions", "model": "mobilemlit_s2", "task": "zeroshot_retrieval", "metrics": {"image_retrieval_recall@5": 0.5043982267379761, "text_retrieval_recall@5": 0.6353999972343445}, "language": "en", "fps_info": {"image_encoder_latency": 18.3491686630249, "text_encoder_latency": 9.93261562347412}}

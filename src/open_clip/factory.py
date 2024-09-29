@@ -393,7 +393,6 @@ def create_loss(args):
 
 def change_image_encoder(model, image_encoder_id, device):
     model.eval()
-    model.visual = None
     torch.cuda.empty_cache()
 
     print("Changing image encoder to", image_encoder_id)
@@ -401,8 +400,8 @@ def change_image_encoder(model, image_encoder_id, device):
 
     if "nvidia" in image_encoder_id:
         model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
-    elif "fastvit" in image_encoder_id:
-        model.visual = timm.create_model(image_encoder_id, pretrained=True).to(dtype=torch.bfloat16)
+    # elif "fastvit" in image_encoder_id:
+    #     model.visual = timm.create_model(image_encoder_id, pretrained=True).to(dtype=torch.bfloat16)
 
     if image_encoder_id == "nvidia/MambaVision-T-1K":
         model.visual.head = torch.nn.Linear(640, 512)
@@ -414,12 +413,14 @@ def change_image_encoder(model, image_encoder_id, device):
         model.visual.head = torch.nn.Linear(1568, 512)
     elif image_encoder_id == "nvidia/MambaVision-L2-1K":
         model.visual.head = torch.nn.Linear(1640, 512)
-    elif image_encoder_id == "fastvit_ma36.apple_dist_in1k":
-        model.visual.head.fc = torch.nn.Linear(1216, 512)
-    elif image_encoder_id == "fastvit_sa36.apple_dist_in1k":
-        model.visual.head.fc = torch.nn.Linear(1024, 512)
+    # elif image_encoder_id == "fastvit_ma36.apple_dist_in1k":
+    #     model.visual.head.fc = torch.nn.Linear(1216, 512)
+    # elif image_encoder_id == "fastvit_sa36.apple_dist_in1k":
+    #     model.visual.head.fc = torch.nn.Linear(1024, 512)
 
     model = model.to(device=device, dtype=torch.bfloat16)
+
+    # print(model)
 
     for param in model.visual.parameters():
         param.requires_grad = False

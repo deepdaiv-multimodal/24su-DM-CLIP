@@ -52,7 +52,7 @@ def get_parser_args():
     parser_eval.add_argument("--skip_load", action="store_true", help="for linear probes, when everything is cached, no need to load model.")
     parser_eval.add_argument("--distributed", action="store_true", help="evaluation in parallel")
     parser_eval.add_argument('--seed', default=0, type=int, help="random seed.")
-    parser_eval.add_argument('--batch_size', default=512, type=int)
+    parser_eval.add_argument('--batch_size', default=2048, type=int)
     parser_eval.add_argument('--normalize', default=True, type=bool, help="features normalization")
     parser_eval.add_argument('--model_cache_dir', default=None, type=str, help="directory to where downloaded models are cached")
     parser_eval.add_argument('--feature_root', default="features", type=str, help="feature root folder where the features are stored.")
@@ -171,10 +171,10 @@ def main_eval(base):
     # Get list of languages to evaluate on
     languages = _as_list(base.language)
 
-    if base.verbose:
-        print(f"Models: {models}")
-        print(f"Datasets: {datasets}")
-        print(f"Languages: {languages}")
+    # if base.verbose:
+    #     print(f"Models: {models}")
+    #     print(f"Datasets: {datasets}")
+    #     print(f"Languages: {languages}")
     runs = product(models, datasets, languages)
     if base.distributed:
         local_rank, rank, world_size = world_info_from_env()
@@ -267,20 +267,22 @@ def run(args):
     pretrained_slug = os.path.basename(args.pretrained) if os.path.isfile(args.pretrained) else args.pretrained
     pretrained_slug_full_path = args.pretrained.replace('/', '_') if os.path.isfile(args.pretrained) else args.pretrained
     dataset_slug = dataset_name.replace('/', '_')
+
+    save_name = args.pretrained[args.pretrained.rfind('/') + 1:args.pretrained.rfind('.pt')]
     output = args.output.format(
-        model=args.model, 
+        model=save_name,
         pretrained=pretrained_slug,
         pretrained_full_path=pretrained_slug_full_path,
         task=task, 
         dataset=dataset_slug,
         language=args.language
     )
-    if os.path.exists(output) and args.skip_existing:
-        if args.verbose:
-            print(f"Skip {output}, exists already.")
-        return
-    if args.verbose:
-        print(f"Running '{task}' on '{dataset_name}' with the model '{args.pretrained}' on language '{args.language}'")
+    # if os.path.exists(output) and args.skip_existing:
+    #     if args.verbose:
+    #         print(f"Skip {output}, exists already.")
+    #     return
+    # if args.verbose:
+    #     print(f"Running '{task}' on '{dataset_name}' with the model '{args.pretrained}' on language '{args.language}'")
     dataset_root = args.dataset_root.format(dataset=dataset_name, dataset_cleaned=dataset_name.replace("/", "-"))
     if args.skip_load:
         model, transform, collate_fn, dataloader = None, None, None, None
@@ -331,13 +333,13 @@ def run(args):
         if args.dataset.startswith("wds/"):
             dataloader = torch.utils.data.DataLoader(
                 dataset.batched(args.batch_size), batch_size=None, 
-                shuffle=False, num_workers=args.num_workers,
+                shuffle=False, num_workers=args.num_workers, pin_memory=True,
             )
         else:
             dataloader = torch.utils.data.DataLoader(
                 dataset, batch_size=args.batch_size, 
                 shuffle=False, num_workers=args.num_workers, 
-                collate_fn=collate_fn
+                collate_fn=collate_fn, pin_memory=True,
             )
             
     sample_image, sample_text = get_sample_from_dataset(dataset, args.device)
@@ -465,26 +467,31 @@ def run(args):
         
     else:
         raise ValueError("Unsupported task: {}. task should be `zeroshot_classification`, `zeroshot_retrieval`, `linear_probe`, or `captioning`".format(task))
+        
+    def save_to_jsonl(output, dump):
+        with open(output, "a") as f:
+            json.dump(dump, f)
+            f.write("\n")
+            print(dump)
 
     dump = {
         "dataset": args.dataset,
-        "model": args.pretrained[args.pretrained.rfind('/') + 1:args.pretrained.rfind('.pt')],
-        # "pretrained": args.pretrained if args.model_type == "mobile_clip" else pretrained_slug,
+        "model": save_name,
         "task": task,
         "metrics": metrics,
         "language": args.language,
         "fps_info": fps_info
     }
-    
-    
+
     if hasattr(dataset, "classes") and dataset.classes and args.dump_classnames:
         dump["classnames"] = dataset.classes
     if hasattr(dataset, "templates") and dataset.templates and args.dump_templates:
         dump["templates"] = dataset.templates
-    if args.verbose:
-        print(f"Dump results to: {output}")
-    with open(output, "w") as f:
-        json.dump(dump, f)
+
+    save_to_jsonl(f"results/{save_name}.jsonl", dump)
+
+    print(f"results/{save_name}.jsonl")
+
     return 0
 
 

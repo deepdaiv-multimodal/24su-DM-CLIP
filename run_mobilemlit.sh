@@ -1,5 +1,5 @@
 # batch_size = 8192
-global_batch_size=$((2**11))
+global_batch_size=$((2**10))
 grad_accum=1
 
 # 50M
@@ -7,7 +7,7 @@ num_seen_samples=$((25*1000*global_batch_size)) # global_batch_size
 num_checkpoints=20
 
 data="DataCompDR-5M/{00000000..00000500}.tar"
-model="MobileCLIP-S2"
+model="MobileCLIP-S1"
 
 if [ "$model" = "MobileCLIP-S1" ]; then
     wandb_project_name="MobileMLiT_S1"
@@ -31,6 +31,7 @@ fi
 #     --local-loss \
 #     --gather-with-grad \
 #     --image-encoder-id "$image_encoder_id" \ apple/mobileclip_s2_timm
+#     --report-to wandb \
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \
@@ -40,8 +41,7 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --dataset-type webdataset \
     --train-num-samples $((num_seen_samples / num_checkpoints)) \
     --precision amp_bfloat16 \
-    --workers 4 \
-    --report-to wandb \
+    --workers 8 \
     --local-loss \
     --gather-with-grad \
     --model "$model"  \
