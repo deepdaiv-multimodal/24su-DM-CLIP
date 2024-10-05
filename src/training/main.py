@@ -102,7 +102,8 @@ def main(args):
     resume_latest = args.resume == 'latest'
     log_base_path = os.path.join(args.logs, args.name)
     args.log_path = None
-    if is_master(args, local=args.log_local):
+
+    if is_master(args, local=args.log_local) and args.logging:
         os.makedirs(log_base_path, exist_ok=True)
         log_filename = f'out-{args.rank}' if args.log_local else 'out.log'
         args.log_path = os.path.join(log_base_path, log_filename)
@@ -114,7 +115,10 @@ def main(args):
 
     # Setup text logger
     args.log_level = logging.DEBUG if args.debug else logging.INFO
-    setup_logging(args.log_path, args.log_level)
+    if args.logging:
+        setup_logging(args.log_path, args.log_level)
+    else:
+        setup_logging(None, args.log_level)
 
     # Setup wandb, tensorboard, checkpoint logging
     args.wandb = 'wandb' in args.report_to or 'all' in args.report_to

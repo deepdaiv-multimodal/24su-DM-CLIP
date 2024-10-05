@@ -124,6 +124,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                             "syn_text_features": model_out["text_features"][batch_size:],  # 합성 텍스트 사용
                             'dist_syn_text_features': batch[5].to(device=device, non_blocking=True)
                         })
+
                 losses = loss(**model_out, output_dict=True)
 
                 total_loss = sum(losses.values())

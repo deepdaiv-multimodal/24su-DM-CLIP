@@ -121,6 +121,12 @@ def parse_args(args):
         help="log files on local master, otherwise global master only.",
     )
     parser.add_argument(
+        '--logging',
+        action="store_false",
+        default=True,
+        help='Whether to loging.',
+    )
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -161,7 +167,7 @@ def parse_args(args):
     parser.add_argument(
         "--lr-scheduler",
         type=str,
-        default='cosine',
+        default='const',
         help="LR scheduler. One of: 'cosine', 'const' (constant), 'const-cooldown' (constant w/ cooldown). Default: cosine",
     )
     parser.add_argument(

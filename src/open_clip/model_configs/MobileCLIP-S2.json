@@ -2,7 +2,7 @@
     "embed_dim": 512,
     "vision_cfg": {
         "timm_model_name": "fastvit_mci2",
-        "timm_model_pretrained": true,
+        "timm_model_pretrained": false,
         "timm_pool": "avg",
         "timm_proj": null,
         "timm_drop": 0.0,

@@ -1,8 +1,8 @@
 # batch_size = 8192
-global_batch_size=$((2**10))
+global_batch_size=$((2**8))
 grad_accum=1
 
-# 50M
+# 100M, 0.1B
 num_seen_samples=$((25*1000*global_batch_size)) # global_batch_size
 num_checkpoints=20
 
@@ -10,17 +10,14 @@ data="DataCompDR-5M/{00000000..00000500}.tar"
 model="MobileCLIP-S1"
 
 if [ "$model" = "MobileCLIP-S1" ]; then
-    wandb_project_name="MobileMLiT_S1"
-    exp_name="MobileMLiT_S1_$(date +%Y-%m-%d_%H-%M-%S)"
+    wandb_project_name="MobileCLIP_M1"
     pretrained="checkpoints/mobileclip_s1.pt"
+    exp_name="MobileMCLIP_S1_3m_3_$(date +%Y-%m-%d_%H-%M-%S)"
     image_encoder_id="nvidia/MambaVision-B-1K"
-    image_encoder_id="fastvit_sa36.apple_dist_in1k"
 elif [ "$model" = "MobileCLIP-S2" ]; then
-    wandb_project_name="MobileMLiT_S2"
-    exp_name="MobileMLiT_S2_$(date +%Y-%m-%d_%H-%M-%S)"
-    pretrained="checkpoints/mobileclip_s2.pt"
+    wandb_project_name="MobileMCLIP_S2"
+    exp_name="MobileCLIP_S2_3M$(date +%Y-%m-%d_%H-%M-%S)"
     image_encoder_id="nvidia/MambaVision-L-1K"
-    image_encoder_id="fastvit_ma36.apple_dist_in1k"
 else
     echo "Invalid model name"
     exit 1
@@ -31,11 +28,13 @@ fi
 #     --local-loss \
 #     --gather-with-grad \
 #     --image-encoder-id "$image_encoder_id" \ apple/mobileclip_s2_timm
-#     --report-to wandb \
+#        --pretrained "$pretrained" \
+#     
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \
     --accum-freq "$grad_accum" \
+    --report-to wandb \
     --train-data "$data" \
     --warmup 1000 \
     --dataset-type webdataset \
@@ -47,7 +46,7 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --model "$model"  \
     --batch-size $global_batch_size \
     --epochs $num_checkpoints \
-    --lr 1.e-3 \
+    --lr 1.e-4 \
     --name $exp_name \
     --seed 0 \
     --log-every-n-steps 1 \
@@ -62,7 +61,7 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --dataset-reinforcement \
     --dataset-reinforcement-config datacompdr12m.json \
     --distill-logit-scale 100 \
-    --distill-loss-weights 0.25 0.75 \
+    --distill-loss-weights 0.75 0.25 \
     --distill-teacher-dimension 768 768 \
     --distill-average-after-softmax \
-    --image-encoder-id "$image_encoder_id"
+    --image-encoder-id "$image_encoder_id" \

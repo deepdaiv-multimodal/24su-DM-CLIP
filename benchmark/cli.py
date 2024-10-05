@@ -52,7 +52,7 @@ def get_parser_args():
     parser_eval.add_argument("--skip_load", action="store_true", help="for linear probes, when everything is cached, no need to load model.")
     parser_eval.add_argument("--distributed", action="store_true", help="evaluation in parallel")
     parser_eval.add_argument('--seed', default=0, type=int, help="random seed.")
-    parser_eval.add_argument('--batch_size', default=2048, type=int)
+    parser_eval.add_argument('--batch_size', default=512, type=int)
     parser_eval.add_argument('--normalize', default=True, type=bool, help="features normalization")
     parser_eval.add_argument('--model_cache_dir', default=None, type=str, help="directory to where downloaded models are cached")
     parser_eval.add_argument('--feature_root', default="features", type=str, help="feature root folder where the features are stored.")

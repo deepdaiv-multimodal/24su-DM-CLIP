@@ -392,14 +392,51 @@ def create_loss(args):
     )
 
 def change_image_encoder(model, image_encoder_id, device):
-    model.eval()
-    torch.cuda.empty_cache()
+    # model.eval()
+    # torch.cuda.empty_cache()
 
     print("Changing image encoder to", image_encoder_id)
     print("Lock image encoder weights and train only text encoder")
 
     if "nvidia" in image_encoder_id:
-        model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+        # model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+        if image_encoder_id == "nvidia/MambaVision-T-1K":
+            model.visual = MambaVision(depths=[1, 3, 8, 4],
+                            num_heads=[2, 4, 8, 16],
+                            window_size=[8, 8, 14, 7],
+                            dim=80,
+                            in_dim=32,
+                            mlp_ratio=4,
+                            resolution=224,
+                            drop_path_rate=0.2
+            )
+        elif image_encoder_id == "nvidia/MambaVision-B-1K":
+            model.visual = MambaVision(depths=[3, 3, 10, 5],
+                        num_heads=[2, 4, 8, 16],
+                        window_size=[8, 8, 14, 7],
+                        dim=128,
+                        in_dim=64,
+                        mlp_ratio=4,
+                        resolution=224,
+                        drop_path_rate=0.3,
+                        layer_scale=1e-5,
+                        layer_scale_conv=None
+            )
+            # model.visual = AutoModel.from_pretrained(image_encoder_id, trust_remote_code=True).model
+        elif image_encoder_id == "nvidia/MambaVision-L-1K":
+            model.visual = MambaVision(depths=[3, 3, 10, 5],
+                        num_heads=[4, 8, 16, 32],
+                        window_size=[8, 8, 14, 7],
+                        dim=196,
+                        in_dim=64,
+                        mlp_ratio=4,
+                        resolution=224,
+                        drop_path_rate=0.3,
+                        layer_scale=1e-5,
+                        layer_scale_conv=None,
+            )
+
+            
     # elif "fastvit" in image_encoder_id:
     #     model.visual = timm.create_model(image_encoder_id, pretrained=True).to(dtype=torch.bfloat16)
 
@@ -407,26 +444,33 @@ def change_image_encoder(model, image_encoder_id, device):
         model.visual.head = torch.nn.Linear(640, 512)
     elif image_encoder_id == "nvidia/MambaVision-B-1K":
         model.visual.head = torch.nn.Linear(1024, 512)
+        # model.load_state_dict(torch.load("checkpoints/mobilemclip_s1_0_1b.pt", map_location=device)["state_dict"])
     elif image_encoder_id == "nvidia/MambaVision-S-1K":
         model.visual.head = torch.nn.Linear(768, 512)
     elif image_encoder_id == "nvidia/MambaVision-L-1K":
         model.visual.head = torch.nn.Linear(1568, 512)
-    elif image_encoder_id == "nvidia/MambaVision-L2-1K":
-        model.visual.head = torch.nn.Linear(1640, 512)
-    # elif image_encoder_id == "fastvit_ma36.apple_dist_in1k":
-    #     model.visual.head.fc = torch.nn.Linear(1216, 512)
-    # elif image_encoder_id == "fastvit_sa36.apple_dist_in1k":
-    #     model.visual.head.fc = torch.nn.Linear(1024, 512)
 
-    model = model.to(device=device, dtype=torch.bfloat16)
+    model = model.to(device=device)
 
     # print(model)
 
-    for param in model.visual.parameters():
-        param.requires_grad = False
+    # for param in model.text.parameters():
+    #     param.requires_grad = False
 
-    for param in model.visual.head.parameters():
-        param.requires_grad = True
+    # for param in model.visual.parameters():
+    #     param.requires_grad = True
+
+
+    # for param in model.visual.parameters():
+    #     param.requires_grad = False
+    
+    # for param in model.visual.head.parameters():
+    #     param.requires_grad = True
+
+    print("Text encoder parameters locked status:")
+    for name, param in model.text.named_parameters():
+        print(f"{name}: requires_grad={param.requires_grad}")
+
 
     return model
 

@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train Model",
+            "type": "python",
+            "request": "launch",
+            "module": "src.training.main",
+            // "program": "${workspaceFolder}/src/training/main.py",
+            "console": "integratedTerminal",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--save-frequency", "1",
+                "--accum-freq", "1",
+                "--train-data", "DataCompDR-5M/{00000000..00000500}.tar",
+                "--warmup", "1000",
+                "--dataset-type", "webdataset",
+                "--train-num-samples", "6400",
+                "--precision", "amp_bfloat16",
+                "--workers", "8",
+                "--local-loss",
+                "--gather-with-grad",
+                "--model", "MobileCLIP-S1",
+                "--batch-size", "256",
+                "--epochs", "20",
+                "--lr", "1.e-4",
+                "--name", "MobileMCLIP_S1_test",
+                "--logging",
+                "--seed", "0",
+                "--log-every-n-steps", "1",
+                "--beta2", "0.95",
+                "--wd", "0.2",
+                "--dataset-resampled",
+                "--save-most-recent",
+                "--grad-clip-norm", "1.0",
+                "--imagenet-val", "imagenet_validation/val",
+                "--zeroshot-frequency", "1",
+                "--wandb-project-name", "MobileCLIP_M1",
+                "--dataset-reinforcement",
+                "--dataset-reinforcement-config", "datacompdr12m.json",
+                "--distill-logit-scale", "100",
+                "--distill-loss-weights", "0", "1",
+                "--distill-teacher-dimension", "768", "768",
+                "--distill-average-after-softmax",
+                "--image-encoder-id", "nvidia/MambaVision-L-1K"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        }
+    ]
+}
