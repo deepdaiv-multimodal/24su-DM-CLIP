@@ -1,15 +1,11 @@
-# MobileMCLIP
-MobileMCLIP: Faster and Stronger MoblieCLIP with Mamba
+# DM-CLIP
+DM-CLIP: Knowledge Distillation Transformer to Mamba for efficient CLIP
 
 ![](https://github.com/user-attachments/assets/81fc00c2-3f47-41dc-bfb0-1c1e23b29405)
 
 
-## Introduction
-We have developed a model using a Mamba-based image encoder that offers faster inference speed and better memory efficiency, outperforming MobileCLIP by being approximately 1.8 times faster and 17% stronger (in terms of acc5). The model was trained on a small 3M dataset using the DataCompDR subset and has shown particularly good performance on high-resolution images and datasets requiring 3D understanding. Although it has been trained only on a small dataset so far, we plan to validate it on large-scale datasets in the future.
-
-![](https://github.com/user-attachments/assets/91c4fcf1-4ae3-4918-8af8-92c2ba0112dc)
-
-![](https://github.com/user-attachments/assets/4d4dc135-e6e0-46f1-9fe5-f29636ffdf25)
+## Abstract
+This study addresses the challenge of deploying Contrastive Learning-based CLIP models, which learn the relationship between images and text, in resource-constrained environments due to their high computational complexity and large model size. To overcome this, we propose an approach that enhances the performance of Mamba-based image encoders by applying Knowledge Distillation from Transformer-based ViT models. Experimental results show that the Mamba-based encoder reduces image encoder latency by 49.58% and overall model latency by 40.82%, with only a 0.12% performance loss. Additionally, it demonstrates 6.6% and 19.4% improvements on the SVHN and EuroSAT datasets, respectively, showcasing strengths in sequential pattern processing and high-resolution spatial information learning. This study validates that the lightweight CLIP encoder can be effectively utilized in mobile and edge device environments and suggests future research directions for developing Mamba-based text encoders and enhancing knowledge distillation techniques.
 
 
 ## setup
