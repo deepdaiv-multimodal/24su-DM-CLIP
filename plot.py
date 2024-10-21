@@ -22,16 +22,11 @@ def process_data(data, model_name):
     for item in data:
         dataset = item['dataset'].split('/')[-1]
         metrics = item['metrics']
-        if 'image_retrieval_recall@5' in metrics:
-            processed[dataset] = metrics['image_retrieval_recall@5']
-        elif 'text_retrieval_recall@5' in metrics:
-            processed[dataset] = metrics['text_retrieval_recall@5']
-        elif 'acc5' in metrics:
+        if 'acc5' in metrics:
             processed[dataset] = metrics['acc5']
-        elif 'mean_average_precision' in metrics:
-            processed[dataset] = metrics['mean_average_precision']
         else:
             print(f"No suitable metric found for dataset {dataset} in model {model_name}")
+
     return {model_name: processed}
 
 def visualize_data(all_data, selected_datasets, models):
@@ -42,11 +37,13 @@ def visualize_data(all_data, selected_datasets, models):
     angles = np.linspace(0, 2*np.pi, len(selected_datasets), endpoint=False)
     angles = np.concatenate((angles, [angles[0]]))
 
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    colors = ['#2ca02c', '#ff7f0e', '', '#d62728']
     for model, color in zip(models, colors):
         if model in plot_data:  # 모델 데이터 존재 확인
             values = plot_data[model]
             values = np.concatenate((values, [values[0]]))
+            if model == 'mobilemclip_s1_6m_025_075':
+                model = 'dmclip_s1_6m_025_075'
             ax.plot(angles, values, 'o-', linewidth=2, color=color, label=model)
             ax.fill(angles, values, alpha=0.1, color=color)
 
@@ -60,6 +57,22 @@ def visualize_data(all_data, selected_datasets, models):
     plt.tight_layout()
     plt.show()
 
+    # 모델별 평균 점수 계산
+    for model in models:
+        if model in plot_data:
+            avg_score = np.mean(plot_data[model])
+            print(f"Average score for {model}: {avg_score:.2f}")
+    
+    # 증가율 
+    for i in range(1, len(models)):
+        model1 = models[i-1]
+        model2 = models[i]
+        avg_score1 = np.mean(plot_data[model1])
+        avg_score2 = np.mean(plot_data[model2])
+        increase = (avg_score2 - avg_score1) / avg_score1 * 100
+        print(f"Increase from {model1} to {model2}: {increase:.2f}%")
+
+
     output_filename = 'plot.png'
     plt.savefig(output_filename)  # plt.show() 대신 plt.savefig() 사용
     print(f"Plot saved to {output_filename}")  # 저장 메시지 출력
@@ -67,11 +80,35 @@ def visualize_data(all_data, selected_datasets, models):
     plt.close(fig)
 
 # --- 메인 실행 부분 ---
-models = ['mobileclip_s1_3m', 'mobilemclip_s1_3m']
+models = ['mobileclip_s1_6m_075_025', 'mobilemclip_s1_6m_025_075']
 
-# 모든 데이터셋을 포함하도록 수정
-selected_datasets = ['stl10', 'cifar10', 'clevr_count_all', 'dmlab', 'eurosat', 'smallnorb_label_elevation', "pets", "voc2007_multilabel", 'clevr_closest_object_distance']
 all_data = {}
+
+selected_datasets = [
+    "objectnet",
+    "fer2013",
+    "voc2007",
+    "sun397",
+    "cars",
+    "mnist",
+    "stl10",
+    "gtsrb",
+    "cifar10",
+    "cifar100",
+    "imagenet1k",
+    "pets",
+    "clevr_closest_object_distance",
+    "caltech101",
+    "svhn",
+    "dmlab",
+    "eurosat",
+    "diabetic_retinopathy",
+    "resisc45",
+    "imagenetv2",
+    "imagenet_sketch",
+    "imagenet-r",
+    "imagenet-o",
+]
 
 for model in models:
     file_path = f'results/{model}.jsonl'

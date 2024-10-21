@@ -3,17 +3,18 @@ import requests
 from tqdm import tqdm
 
 # 데이터셋 파일의 기본 URL 설정
-base_url = "https://huggingface.co/datasets/apple/DataCompDR-12M/resolve/main/"
+# base_url = "https://huggingface.co/datasets/apple/DataCompDR-12M/resolve/main/"
 # base_url = "https://huggingface.co/datasets/mlfoundations/DataComp-12M/resolve/main/"
+base_url = "https://huggingface.co/datasets/taewan2002/DataCompDR-5M/resolve/main/"
 
 # 다운로드 디렉토리 지정
-download_dir = "DataCompDR-6M"
+download_dir = "DataCompDR-5M"
 
 # 다운로드 디렉토리 생성 (존재하지 않을 경우)
 os.makedirs(download_dir, exist_ok=True)
 
 # 파일 인덱스 범위 설정 (00000000.tar부터 00000500.tar까지)
-for i in range(0, 501):  # 0부터 500까지 포함
+for i in range(499, 501):  # 0부터 500까지 포함
     file_index = f"{i:08d}"
     filename = f"{file_index}.tar"
     url = base_url + filename

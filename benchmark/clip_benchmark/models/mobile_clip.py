@@ -1,6 +1,6 @@
 from open_clip import create_model_and_transforms, get_tokenizer
 import torch
-import mobileclip
+# import mobileclip
 
 def load_mobile_clip(model_name: str = "mobileclip_s0", pretrained: str = None, cache_dir: str = None, image_encoder_id: str = None, device="cpu"):
 

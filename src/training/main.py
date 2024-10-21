@@ -447,8 +447,8 @@ def main(args):
         train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args)
         completed_epoch = epoch + 1
 
-        if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
+        # if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
+        #     evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
 
         # Saving checkpoints.
         if args.save_logs:

@@ -2,8 +2,8 @@
 global_batch_size=$((2**8))
 grad_accum=1
 
-# 100M, 0.1B
-num_seen_samples=$((25*1000*global_batch_size)) # global_batch_size
+# 0.64B
+num_seen_samples=$((global_batch_size)) # global_batch_size
 num_checkpoints=20
 
 data="DataCompDR-5M/{00000000..00000500}.tar"
@@ -12,12 +12,8 @@ model="MobileCLIP-S1"
 if [ "$model" = "MobileCLIP-S1" ]; then
     wandb_project_name="MobileCLIP_M1"
     pretrained="checkpoints/mobileclip_s1.pt"
-    exp_name="MobileMCLIP_S1_3m_3_$(date +%Y-%m-%d_%H-%M-%S)"
+    exp_name="MCi_test_$(date +%Y-%m-%d_%H-%M-%S)"
     image_encoder_id="nvidia/MambaVision-B-1K"
-elif [ "$model" = "MobileCLIP-S2" ]; then
-    wandb_project_name="MobileMCLIP_S2"
-    exp_name="MobileCLIP_S2_3M$(date +%Y-%m-%d_%H-%M-%S)"
-    image_encoder_id="nvidia/MambaVision-L-1K"
 else
     echo "Invalid model name"
     exit 1
@@ -29,7 +25,7 @@ fi
 #     --gather-with-grad \
 #     --image-encoder-id "$image_encoder_id" \ apple/mobileclip_s2_timm
 #        --pretrained "$pretrained" \
-#     
+#         --image-encoder-id "$image_encoder_id" \
 
 CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --save-frequency 1 \
@@ -64,4 +60,4 @@ CUDA_VISIBLE_DEVICES=0 python -m src.training.main \
     --distill-loss-weights 0.75 0.25 \
     --distill-teacher-dimension 768 768 \
     --distill-average-after-softmax \
-    --image-encoder-id "$image_encoder_id" \
+    --image-encoder-id "$image_encoder_id"
